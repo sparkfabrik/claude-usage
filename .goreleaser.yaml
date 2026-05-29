@@ -1,0 +1,117 @@
+version: 2
+
+project_name: claude-usage
+
+builds:
+  - id: cli
+    main: ./cmd/claude-usage/
+    binary: claude-usage
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+  - id: tray
+    main: ./readers/macos-tray/
+    binary: claude-usage-tray
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  # CLI archive with docs and config
+  - id: cli
+    builds:
+      - cli
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - config.default.yaml
+
+  # Raw binary (no archive wrapper, direct curl download)
+  - id: binary
+    builds:
+      - cli
+    formats:
+      - binary
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+
+  # macOS tray binary
+  - id: tray
+    builds:
+      - tray
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}-tray_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+
+  # GNOME Shell extension bundle (arch-independent)
+  - id: gnome-extension
+    formats:
+      - zip
+    name_template: "gnome-shell-extension_{{ .Version }}"
+    meta: true
+    files:
+      - src: readers/gnome-shell-extension/extension.js
+        dst: .
+      - src: readers/gnome-shell-extension/metadata.json
+        dst: .
+      - src: readers/gnome-shell-extension/sparkle.svg
+        dst: .
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Refactoring
+      regexp: '^.*?refactor(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "^build:"
+
+release:
+  github:
+    owner: sparkfabrik
+    name: claude-usage
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"

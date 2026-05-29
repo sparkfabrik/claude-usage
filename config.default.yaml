@@ -1,0 +1,39 @@
+# Claude Code Usage Monitor - Default Configuration
+
+api:
+  # Enable API polling
+  enabled: true
+  # Cache older than this (seconds) triggers a new API call
+  stale_after: 60
+  # Model used for polling (cheapest, 1 token per poll)
+  model: claude-haiku-4-5-20251001
+  # Only poll when Claude Code is running (default: true)
+  # Set false to always poll when cache is stale, regardless of Claude's state
+  # Note: --force-poll bypasses both only_when_active and stale_after
+  only_when_active: true
+
+display:
+  # Show estimated API-equivalent cost
+  show_cost: true
+  # Time periods to show: today, 7d, 30d, all
+  periods:
+    - today
+    - 7d
+    - 30d
+
+colors:
+  # Utilization percentage thresholds
+  green_below: 80
+  orange_below: 90
+
+cache:
+  # Override cache file path (default: ~/.cache/claude-code-usage/quota.json)
+  # path: /custom/path/quota.json
+
+# Override model pricing (per 1M tokens, USD)
+# pricing:
+#   claude-opus-4:
+#     input: 15.00
+#     output: 75.00
+#     cache_write: 18.75
+#     cache_read: 1.50

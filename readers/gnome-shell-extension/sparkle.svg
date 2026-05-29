@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- 8-point starburst: 4 long rays + 4 short diagonal rays -->
+  <path d="
+    M8 0.5   L8.8 5.8
+    L14 2     L10.2 6.8
+    L15.5 8   L10.2 9.2
+    L14 14    L8.8 10.2
+    L8 15.5   L7.2 10.2
+    L2 14     L5.8 9.2
+    L0.5 8    L5.8 6.8
+    L2 2      L7.2 5.8
+    Z" fill="#D97706"/>
+</svg>

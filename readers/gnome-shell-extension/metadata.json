@@ -1,0 +1,8 @@
+{
+  "uuid": "claude-usage@claude-code-usage",
+  "name": "Claude Code Usage",
+  "description": "Shows Claude Code usage (5h/7d) in the top panel",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "version": 1,
+  "url": "https://github.com/Monska85/claude-usage"
+}
