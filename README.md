@@ -62,13 +62,6 @@ The installer auto-detects your OS, architecture, and desktop environment, then 
 curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_VERSION=v1.0.0 bash
 ```
 
-**Private repo (requires GitHub token):**
-
-```bash
-curl -fsSL -H "Authorization: token $(gh auth token)" \
-  "https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh" \
-  | GITHUB_TOKEN=$(gh auth token) CLAUDE_USAGE_VERSION=v1.0.0 bash
-```
 
 **Upgrade:** Re-run the install command. The installer is idempotent — it skips if already up to date, upgrades if a new version is available.
 
