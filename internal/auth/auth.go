@@ -43,21 +43,10 @@ func CredentialsPath() (string, error) {
 	return filepath.Join(home, ".claude", ".credentials.json"), nil
 }
 
-// Load reads OAuth credentials from disk. Returns nil if not found.
-func Load() (*Credentials, error) {
-	credPath, err := CredentialsPath()
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(credPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	// Try nested structure first (claudeAiOauth key)
+// parseCredentials parses a JSON blob into Credentials.
+// It handles both the nested {"claudeAiOauth":{...}} shape and a top-level object.
+// Returns nil if no accessToken is present.
+func parseCredentials(data []byte) (*Credentials, error) {
 	var wrapper credentialsFile
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return nil, err
@@ -79,4 +68,34 @@ func Load() (*Credentials, error) {
 	}
 
 	return &creds, nil
+}
+
+// Load reads OAuth credentials. On macOS it tries the Keychain first, then
+// falls back to the credentials file. On other platforms only the file is read.
+// Returns nil if not found.
+func Load() (*Credentials, error) {
+	// Try macOS Keychain first (no-op on other platforms)
+	if data, err := readKeychain(); err != nil {
+		return nil, err
+	} else if data != nil {
+		if creds, err := parseCredentials(data); err == nil && creds != nil {
+			return creds, nil
+		}
+		// If keychain data doesn't parse, fall through to file
+	}
+
+	// Fall back to credentials file
+	credPath, err := CredentialsPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(credPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return parseCredentials(data)
 }
