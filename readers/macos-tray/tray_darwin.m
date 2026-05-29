@@ -1,4 +1,4 @@
-// +build darwin
+// Native macOS tray implementation using NSStatusItem + NSAttributedString.
 
 #import <Cocoa/Cocoa.h>
 #include "_cgo_export.h"
@@ -128,9 +128,9 @@ void runApp(void) {
 }
 
 void stopApp(void) {
-    @autoreleasepool {
+    dispatch_async(dispatch_get_main_queue(), ^{
         [NSApp terminate:nil];
-    }
+    });
 }
 
 void setTrayTitle(const char *title, double r, double g, double b) {
