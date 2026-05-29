@@ -1,9 +1,10 @@
 import QtQuick 2.15
 import QtQuick.Layouts 1.15
 import org.kde.plasma.plasmoid 2.0
-import org.kde.plasma.core as PlasmaCore
+import org.kde.plasma.plasma5support as P5Support
 import org.kde.plasma.components 3.0 as PlasmaComponents
 import org.kde.plasma.extras 2.0 as PlasmaExtras
+import org.kde.kirigami as Kirigami
 
 PlasmoidItem {
     id: root
@@ -29,18 +30,18 @@ PlasmoidItem {
     }
 
     function findBinary() {
-        // Try PATH first via 'which', then fallback
-        whichProcess.start()
+        whichSource.connectedSources = ["which claude-usage || echo ''"]
     }
 
-    PlasmaCore.DataSource {
-        id: whichProcess
+    function pollStatus() {
+        if (binaryPath === "") return
+        statusSource.connectedSources = [binaryPath + " --status"]
+    }
+
+    P5Support.DataSource {
+        id: whichSource
         engine: "executable"
         connectedSources: []
-
-        function start() {
-            connectSource("which claude-usage || echo ''")
-        }
 
         onNewData: function(source, data) {
             var stdout = data["stdout"].trim()
@@ -54,8 +55,8 @@ PlasmoidItem {
         }
     }
 
-    PlasmaCore.DataSource {
-        id: statusProcess
+    P5Support.DataSource {
+        id: statusSource
         engine: "executable"
         connectedSources: []
 
@@ -81,11 +82,6 @@ PlasmoidItem {
                 root.errorMessage = "JSON parse error"
             }
         }
-    }
-
-    function pollStatus() {
-        if (root.binaryPath === "") return
-        statusProcess.connectSource(root.binaryPath + " --status")
     }
 
     Timer {
@@ -114,8 +110,8 @@ PlasmoidItem {
             }
 
             color: {
-                if (!root.hasData) return PlasmaCore.Theme.textColor
-                return root.statusData.c_color || PlasmaCore.Theme.textColor
+                if (!root.hasData) return Kirigami.Theme.textColor
+                return root.statusData.c_color || Kirigami.Theme.textColor
             }
         }
 
@@ -138,7 +134,7 @@ PlasmoidItem {
         PlasmaComponents.Label {
             visible: root.hasData
             text: "5h utilization: " + (root.statusData.c_pct || 0) + "%"
-            color: root.statusData.c_color || PlasmaCore.Theme.textColor
+            color: root.statusData.c_color || Kirigami.Theme.textColor
         }
 
         PlasmaComponents.Label {
@@ -149,7 +145,7 @@ PlasmoidItem {
         PlasmaComponents.Label {
             visible: root.hasData
             text: "7d utilization: " + (root.statusData.w_pct || 0) + "%"
-            color: root.statusData.w_color || PlasmaCore.Theme.textColor
+            color: root.statusData.w_color || Kirigami.Theme.textColor
         }
 
         PlasmaComponents.Label {
