@@ -2,8 +2,13 @@
 # SessionEnd hook — kill claude-usage-tray only when last Claude Code session closes.
 [ "$(uname -s)" != "Darwin" ] && exit 0
 
-STDIN_DATA=$(cat)
-SESSION_ID=$(echo "$STDIN_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
+# Read stdin with timeout to avoid blocking
+STDIN_DATA=""
+if read -t 2 -r STDIN_DATA; then
+  : # got data
+fi
+
+SESSION_ID=$(echo "$STDIN_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
 
 # Sanitize session ID — allow only safe filename characters
 SESSION_ID=$(echo "$SESSION_ID" | tr -cd 'A-Za-z0-9._-')
