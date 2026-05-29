@@ -238,13 +238,41 @@ func setErrorStateLocked() {
 }
 
 // setIcon renders text in the given color and sets it as the systray icon.
-// Falls back to SetTitle if rendering fails.
+// The glyph is shown via SetTitle (monochrome) while the percentages are
+// rendered as a colored icon. Falls back to SetTitle for everything if rendering fails.
 func setIcon(text string, clr color.RGBA) {
-	icon, err := renderTextIcon(text, clr)
-	if err != nil {
+	// Split glyph prefix from the rest for rendering
+	// Glyphs aren't in Go Mono, so show them via SetTitle
+	glyph, rest := splitGlyph(text)
+
+	if rest == "" {
+		// Only glyph (idle/error state) — just use SetTitle
+		systray.SetIcon(nil)
 		systray.SetTitle(text)
 		return
 	}
-	systray.SetTitle("")
+
+	icon, err := renderTextIcon(rest, clr)
+	if err != nil {
+		systray.SetIcon(nil)
+		systray.SetTitle(text)
+		return
+	}
+	systray.SetTitle(glyph)
 	systray.SetIcon(icon)
+}
+
+// splitGlyph splits a menu bar string into its leading glyph and the rest.
+func splitGlyph(text string) (string, string) {
+	// Glyphs are single runes followed by a space
+	for i, r := range text {
+		if r == ' ' && i > 0 {
+			return text[:i], text[i+1:]
+		}
+		// If first char is ASCII, no glyph prefix
+		if i == 0 && r < 128 {
+			return "", text
+		}
+	}
+	return text, ""
 }
