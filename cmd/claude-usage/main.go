@@ -141,7 +141,7 @@ func main() {
 		return
 	}
 
-	if err := runDashboard(os.Stdout, creds, cfg, cachePath, "", *noPoll, *forcePoll, *noCost, *period); err != nil {
+	if err := runDashboard(os.Stdout, creds, cfg, cachePath, "", *noPoll, *forcePoll, *noCost, *period, ""); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -295,13 +295,13 @@ func colorForPct(pct int, cfg *config.Config) string {
 }
 
 // runDashboard renders the full CLI dashboard.
-func runDashboard(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath, projectsPath string, noPoll, forcePoll, noCost bool, period string) error {
+func runDashboard(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath, projectsPath string, noPoll, forcePoll, noCost bool, period, apiURL string) error {
 	showCost := cfg.Display.ShowCost && !noCost
 
 	fmt.Fprintln(w, dashboard.RenderAccount(creds))
 	fmt.Fprintln(w)
 
-	quota := pollOrReadCache(w, creds, cfg, cachePath, noPoll, forcePoll, "")
+	quota := pollOrReadCache(w, creds, cfg, cachePath, noPoll, forcePoll, apiURL)
 	fmt.Fprintln(w, dashboard.RenderQuota(quota, cfg))
 	fmt.Fprintln(w)
 

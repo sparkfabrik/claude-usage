@@ -21,13 +21,21 @@ ARCH          := $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64
 
 .PHONY: build-cli test-cli test-cli-short test-cli-cover lint-cli install-cli install-gnome-extension install-kde install-waybar install-macos-tray uninstall-cli uninstall-gnome-extension reload-gnome-extension test-gnome-extension clean
 
-## Download golangci-lint if not present
+## Download golangci-lint if not present (with checksum verification)
+GOLANGCI_LINT_TARBALL := golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH).tar.gz
 $(GOLANGCI_LINT):
 	@mkdir -p $(BIN_DIR)
 	@echo "Downloading golangci-lint v$(GOLANGCI_LINT_VERSION)..."
-	@curl -sSfL https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH).tar.gz | \
-		tar xz -C $(BIN_DIR) --strip-components=1 golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH)/golangci-lint
-	@echo "Installed golangci-lint v$(GOLANGCI_LINT_VERSION) to $(BIN_DIR)"
+	@curl -sSfL -o $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) \
+		https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/$(GOLANGCI_LINT_TARBALL)
+	@curl -sSfL -o $(BIN_DIR)/checksums.txt \
+		https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/golangci-lint-$(GOLANGCI_LINT_VERSION)-checksums.txt
+	@cd $(BIN_DIR) && grep "$(GOLANGCI_LINT_TARBALL)$$" checksums.txt | \
+		if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --quiet; else shasum -a 256 -c --quiet; fi
+	@tar xzf $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) -C $(BIN_DIR) --strip-components=1 \
+		golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH)/golangci-lint
+	@rm -f $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) $(BIN_DIR)/checksums.txt
+	@echo "Installed golangci-lint v$(GOLANGCI_LINT_VERSION) to $(BIN_DIR) (checksum verified)"
 
 ## Run linter
 lint-cli: $(GOLANGCI_LINT)

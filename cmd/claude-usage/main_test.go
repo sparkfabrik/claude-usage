@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -1181,7 +1182,7 @@ func TestRunDashboard_NoEntries(t *testing.T) {
 	cachePath := t.TempDir() + "/quota.json"
 	emptyDir := t.TempDir() // no .jsonl files
 
-	err := runDashboard(&buf, nil, cfg, cachePath, emptyDir, true, false, false, "")
+	err := runDashboard(&buf, nil, cfg, cachePath, emptyDir, true, false, false, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1199,7 +1200,7 @@ func TestRunDashboard_WithEntries(t *testing.T) {
 	cachePath := t.TempDir() + "/quota.json"
 	projectsDir := createFakeProjectsDir(t)
 
-	err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, false, "")
+	err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, false, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1223,7 +1224,7 @@ func TestRunDashboard_WithEntriesNoCost(t *testing.T) {
 	cachePath := t.TempDir() + "/quota.json"
 	projectsDir := createFakeProjectsDir(t)
 
-	err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, true, "")
+	err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, true, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1241,7 +1242,7 @@ func TestRunDashboard_SpecificPeriod(t *testing.T) {
 	cachePath := t.TempDir() + "/quota.json"
 	projectsDir := createFakeProjectsDir(t)
 
-	err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, false, "today")
+	err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, false, "today", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1258,7 +1259,7 @@ func TestRunDashboard_InvalidPeriod(t *testing.T) {
 	cachePath := t.TempDir() + "/quota.json"
 	projectsDir := createFakeProjectsDir(t)
 
-	err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, false, "bogus")
+	err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, false, "bogus", "")
 	if err == nil {
 		t.Fatal("expected error for invalid period")
 	}
@@ -1273,7 +1274,7 @@ func TestRunDashboard_NonexistentProjectsDir(t *testing.T) {
 	cfg.API.Enabled = false
 	cachePath := t.TempDir() + "/quota.json"
 
-	err := runDashboard(&buf, nil, cfg, cachePath, "/tmp/nonexistent-projects-dir", true, false, false, "")
+	err := runDashboard(&buf, nil, cfg, cachePath, "/tmp/nonexistent-projects-dir", true, false, false, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1350,11 +1351,11 @@ func TestCLI_StatusNoPollNoCache(t *testing.T) {
 	binary := buildTestBinary(t)
 
 	// Use a non-existent cache path via config to ensure no cached data.
-	cfgPath := writeTempConfig(t, `
+	nonExistentCache := filepath.Join(t.TempDir(), "test-nonexistent-cache.json")
+	cfgPath := writeTempConfig(t, fmt.Sprintf(`
 cache:
-  path: /tmp/opencode/test-nonexistent-cache.json
-`)
-	os.Remove("/tmp/opencode/test-nonexistent-cache.json")
+  path: %s
+`, nonExistentCache))
 
 	out, err := exec.Command(binary, "--status", "--no-poll", "--config", cfgPath).CombinedOutput()
 	if err != nil {
