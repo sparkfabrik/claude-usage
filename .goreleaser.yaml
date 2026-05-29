@@ -2,6 +2,10 @@ version: 2
 
 project_name: claude-usage
 
+before:
+  hooks:
+    - cmd: tar czf claude-usage-readers.tar.gz -C readers gnome-shell-extension kde-plasmoid waybar
+
 builds:
   - id: cli
     main: ./cmd/claude-usage/
@@ -62,19 +66,7 @@ archives:
     name_template: >-
       {{ .ProjectName }}-tray_{{ .Os }}_{{ .Arch }}
 
-  # All reader assets (arch-independent, for installer)
-  - id: readers
-    formats:
-      - tar.gz
-    name_template: "claude-usage-readers"
-    meta: true
-    files:
-      - src: readers/gnome-shell-extension/**/*
-        dst: gnome-shell-extension/
-      - src: readers/kde-plasmoid/**/*
-        dst: kde-plasmoid/
-      - src: readers/waybar/*
-        dst: waybar/
+
 
   # GNOME Shell extension bundle (for manual install)
   - id: gnome-extension
@@ -126,3 +118,5 @@ release:
   draft: false
   prerelease: auto
   name_template: "v{{ .Version }}"
+  extra_files:
+    - glob: claude-usage-readers.tar.gz
