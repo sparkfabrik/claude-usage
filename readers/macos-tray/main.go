@@ -1,5 +1,8 @@
+//go:build darwin
+
 // Command claude-usage-tray is a macOS menu bar app displaying Claude Code utilization.
-// It calls the claude-usage CLI every 60s and renders status in the system tray.
+// It calls the claude-usage CLI every 60s and renders status in the system tray
+// using native NSStatusItem with colored text via NSAttributedString.
 package main
 
 import (
@@ -11,8 +14,6 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-
-	"fyne.io/systray"
 )
 
 type StatusResponse struct {
@@ -28,24 +29,51 @@ type StatusResponse struct {
 	Error         string `json:"error"`
 }
 
+// colorErrorRed is system red used for error states.
+var colorErrorRed = color.RGBA{R: 0xDC, G: 0x32, B: 0x32, A: 0xFF}
+
+// colorClaudeOrange is the default healthy-state color.
+var colorClaudeOrange = color.RGBA{R: 0xD9, G: 0x77, B: 0x57, A: 0xFF}
+
 var (
 	mu         sync.Mutex
 	status     StatusResponse
 	binaryPath string
-
-	mStatus    *systray.MenuItem
-	mDetail5h  *systray.MenuItem
-	mReset5h   *systray.MenuItem
-	mDetail7d  *systray.MenuItem
-	mReset7d   *systray.MenuItem
-	mAuth      *systray.MenuItem
-	mError     *systray.MenuItem
-	mRefresh   *systray.MenuItem
-	mQuit      *systray.MenuItem
+	refreshCh  = make(chan struct{}, 1)
+	quitCh     = make(chan struct{}, 1)
 )
 
 func main() {
-	systray.Run(onReady, onExit)
+	binaryPath = findBinary()
+
+	// Init native tray on main thread
+	nativeInitTray()
+
+	// Set initial state
+	setTitle("◌ —", colorClaudeOrange)
+
+	// Initial poll
+	go pollAndUpdate(false)
+
+	// Background poller
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				pollAndUpdate(false)
+			case <-refreshCh:
+				pollAndUpdate(true)
+			case <-quitCh:
+				nativeStopApp()
+				return
+			}
+		}
+	}()
+
+	// Run NSApp (blocks on main thread)
+	nativeRunApp()
 }
 
 // quotaGlyph returns the appropriate glyph for 5h utilization percentage.
@@ -70,61 +98,34 @@ func formatReset(reset string) string {
 	return reset
 }
 
-func onReady() {
-	systray.SetTitle("")
-	systray.SetTooltip("Claude Usage")
-	setIcon("◌ —", colorClaudeOrange)
-
-	mStatus = systray.AddMenuItem("Status: idle", "Current state")
-	systray.AddSeparator()
-	mDetail5h = systray.AddMenuItem("5h: --", "5-hour utilization")
-	mReset5h = systray.AddMenuItem("  resets in —", "5h reset timer")
-	mDetail7d = systray.AddMenuItem("7d: --", "7-day utilization")
-	mReset7d = systray.AddMenuItem("  resets in —", "7d reset timer")
-	mAuth = systray.AddMenuItem("", "Auth state")
-	mAuth.Hide()
-	mError = systray.AddMenuItem("", "Error info")
-	mError.Hide()
-	systray.AddSeparator()
-	mRefresh = systray.AddMenuItem("Refresh now", "Force poll and refresh")
-	mQuit = systray.AddMenuItem("Quit", "Quit the tray app")
-
-	binaryPath = findBinary()
-
-	// Initial poll
-	pollAndUpdate(false)
-
-	// Poll every 60s
-	ticker := time.NewTicker(60 * time.Second)
-
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				pollAndUpdate(false)
-			case <-mRefresh.ClickedCh:
-				pollAndUpdate(true)
-			case <-mQuit.ClickedCh:
-				systray.Quit()
-			}
-		}
-	}()
+// parseHexColor parses a "#RRGGBB" hex string into a color.RGBA.
+// Returns Claude orange if parsing fails.
+func parseHexColor(hex string) color.RGBA {
+	if len(hex) != 7 || hex[0] != '#' {
+		return colorClaudeOrange
+	}
+	var r, g, b uint8
+	_, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
+	if err != nil {
+		return colorClaudeOrange
+	}
+	return color.RGBA{R: r, G: g, B: b, A: 0xFF}
 }
 
-func onExit() {}
+// setTitle sets the menu bar title with the given color.
+func setTitle(text string, clr color.RGBA) {
+	nativeSetTitle(text, float64(clr.R)/255.0, float64(clr.G)/255.0, float64(clr.B)/255.0)
+}
 
 func findBinary() string {
-	// Check PATH
 	if p, err := exec.LookPath("claude-usage"); err == nil {
 		return p
 	}
-	// Fallback: ~/.local/bin
 	home, _ := os.UserHomeDir()
 	localBin := filepath.Join(home, ".local", "bin", "claude-usage")
 	if _, err := os.Stat(localBin); err == nil {
 		return localBin
 	}
-	// Fallback: /usr/local/bin
 	usrLocal := "/usr/local/bin/claude-usage"
 	if _, err := os.Stat(usrLocal); err == nil {
 		return usrLocal
@@ -160,14 +161,14 @@ func updateDisplay() {
 	updateAuth(status.Auth)
 
 	if !status.ClaudeRunning {
-		setIcon("◌ —", colorClaudeOrange)
-		mStatus.SetTitle("Status: idle")
-		mDetail5h.SetTitle("5h: --")
-		mReset5h.SetTitle("  resets in —")
-		mDetail7d.SetTitle("7d: --")
-		mReset7d.SetTitle("  resets in —")
-		mError.Hide()
-		mAuth.Hide()
+		setTitle("◌ —", colorClaudeOrange)
+		nativeSetMenuItemTitle(tagStatus, "Status: idle")
+		nativeSetMenuItemTitle(tag5h, "5h: --")
+		nativeSetMenuItemTitle(tagReset5h, "  resets in —")
+		nativeSetMenuItemTitle(tag7d, "7d: --")
+		nativeSetMenuItemTitle(tagReset7d, "  resets in —")
+		nativeSetMenuItemHidden(tagError, true)
+		nativeSetMenuItemHidden(tagAuth, true)
 		return
 	}
 
@@ -180,43 +181,42 @@ func updateDisplay() {
 
 	// Color from c_color field
 	clr := parseHexColor(status.CColor)
-	setIcon(title, clr)
+	setTitle(title, clr)
 
 	// Status line
 	if status.Stale {
-		mStatus.SetTitle("Status: stale")
+		nativeSetMenuItemTitle(tagStatus, "Status: stale")
 	} else {
-		mStatus.SetTitle("Status: active")
+		nativeSetMenuItemTitle(tagStatus, "Status: active")
 	}
 
 	// Dropdown detail
-	mDetail5h.SetTitle(fmt.Sprintf("5h: %d%%", status.CPct))
-	mReset5h.SetTitle(fmt.Sprintf("  resets in %s", formatReset(status.CReset)))
-	mDetail7d.SetTitle(fmt.Sprintf("7d: %d%%", status.WPct))
-	mReset7d.SetTitle(fmt.Sprintf("  resets in %s", formatReset(status.WReset)))
+	nativeSetMenuItemTitle(tag5h, fmt.Sprintf("5h: %d%%", status.CPct))
+	nativeSetMenuItemTitle(tagReset5h, fmt.Sprintf("  resets in %s", formatReset(status.CReset)))
+	nativeSetMenuItemTitle(tag7d, fmt.Sprintf("7d: %d%%", status.WPct))
+	nativeSetMenuItemTitle(tagReset7d, fmt.Sprintf("  resets in %s", formatReset(status.WReset)))
 
 	if status.Error != "" {
-		mError.SetTitle("Error: " + status.Error)
-		mError.Show()
+		nativeSetMenuItemTitle(tagError, "Error: "+status.Error)
+		nativeSetMenuItemHidden(tagError, false)
 	} else {
-		mError.Hide()
+		nativeSetMenuItemHidden(tagError, true)
 	}
 }
 
-// updateAuth shows the auth-state menu item (hidden when valid).
 func updateAuth(authState string) {
 	switch authState {
 	case "valid":
-		mAuth.Hide()
+		nativeSetMenuItemHidden(tagAuth, true)
 	case "expired":
-		mAuth.SetTitle("⚠ Auth expired — run Claude Code to refresh")
-		mAuth.Show()
+		nativeSetMenuItemTitle(tagAuth, "⚠ Auth expired — run Claude Code to refresh")
+		nativeSetMenuItemHidden(tagAuth, false)
 	case "missing":
-		mAuth.SetTitle("⚠ No credentials found")
-		mAuth.Show()
+		nativeSetMenuItemTitle(tagAuth, "⚠ No credentials found")
+		nativeSetMenuItemHidden(tagAuth, false)
 	default:
-		mAuth.SetTitle("Auth: unknown")
-		mAuth.Show()
+		nativeSetMenuItemTitle(tagAuth, "Auth: unknown")
+		nativeSetMenuItemHidden(tagAuth, false)
 	}
 }
 
@@ -227,52 +227,12 @@ func setErrorState() {
 }
 
 func setErrorStateLocked() {
-	setIcon("⚠ —", colorErrorRed)
-	mStatus.SetTitle("Status: error")
-	mDetail5h.SetTitle("5h: --")
-	mReset5h.SetTitle("  resets in —")
-	mDetail7d.SetTitle("7d: --")
-	mReset7d.SetTitle("  resets in —")
-	mError.Hide()
-	mAuth.Hide()
-}
-
-// setIcon renders text in the given color and sets it as the systray icon.
-// The glyph is shown via SetTitle (monochrome) while the percentages are
-// rendered as a colored icon. Falls back to SetTitle for everything if rendering fails.
-func setIcon(text string, clr color.RGBA) {
-	// Split glyph prefix from the rest for rendering
-	// Glyphs aren't in Go Mono, so show them via SetTitle
-	glyph, rest := splitGlyph(text)
-
-	if rest == "" {
-		// Only glyph (idle/error state) — just use SetTitle
-		systray.SetIcon(nil)
-		systray.SetTitle(text)
-		return
-	}
-
-	icon, err := renderTextIcon(rest, clr)
-	if err != nil {
-		systray.SetIcon(nil)
-		systray.SetTitle(text)
-		return
-	}
-	systray.SetTitle(glyph)
-	systray.SetIcon(icon)
-}
-
-// splitGlyph splits a menu bar string into its leading glyph and the rest.
-func splitGlyph(text string) (string, string) {
-	// Glyphs are single runes followed by a space
-	for i, r := range text {
-		if r == ' ' && i > 0 {
-			return text[:i], text[i+1:]
-		}
-		// If first char is ASCII, no glyph prefix
-		if i == 0 && r < 128 {
-			return "", text
-		}
-	}
-	return text, ""
+	setTitle("⚠ —", colorErrorRed)
+	nativeSetMenuItemTitle(tagStatus, "Status: error")
+	nativeSetMenuItemTitle(tag5h, "5h: --")
+	nativeSetMenuItemTitle(tagReset5h, "  resets in —")
+	nativeSetMenuItemTitle(tag7d, "7d: --")
+	nativeSetMenuItemTitle(tagReset7d, "  resets in —")
+	nativeSetMenuItemHidden(tagError, true)
+	nativeSetMenuItemHidden(tagAuth, true)
 }

@@ -7,12 +7,13 @@ render color into an icon image, or abandon systray for native Cocoa.
 
 ## Decision
 
-**Decided: B** — Render colored text as a PNG icon via `systray.SetIcon`.
+**Decided: A** — Native `NSStatusItem` via cgo Objective-C.
 
-Rationale: keeps systray dependency, no cgo, single cross-platform binary.
-Uses Go `image` + `golang.org/x/image/font` with a bundled TTF (system
-monospace or embedded). Renders at @2x (44px height) for Retina crispness.
-Title text is cleared; icon carries the glyph + percentages.
+Rationale: Option B (icon rendering) produced monochrome fallback because Go Mono
+lacks the Unicode glyphs and systray's SetIcon doesn't guarantee color preservation.
+Option A gives pixel-perfect parity with claudemeter: uses NSAttributedString with
+NSColor on the system menu bar font, which includes all required glyphs.
+Darwin-only (`//go:build darwin`), drops systray dependency entirely.
 
 ## Options
 
