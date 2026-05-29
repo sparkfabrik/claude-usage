@@ -9,29 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release-cli:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-
-      - name: Run GoReleaser (CLI + GNOME extension)
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          version: latest
-          args: release --clean --split
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GOOS: linux
-
-  release-tray:
+  release:
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -44,15 +22,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build macOS tray
-        run: |
-          CGO_ENABLED=1 go build -ldflags="-s -w" -o claude-usage-tray ./readers/macos-tray/
-
-      - name: Run GoReleaser (tray only)
+      - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
-          args: release --clean --split
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GOOS: darwin
