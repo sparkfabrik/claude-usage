@@ -1,19 +1,33 @@
 BINARY_NAME   := claude-usage
+VERSION       := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT        := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+BUILD_DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS       := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE) -X main.builtBy=make
 EXT_UUID      := claude-usage@claude-code-usage
 EXT_DIR       := $(HOME)/.local/share/gnome-shell/extensions/$(EXT_UUID)
 INSTALL_DIR   := $(HOME)/.local/bin
 
-.PHONY: build install install-binary install-gnome-extension install-kde install-waybar install-macos-tray uninstall uninstall-binary uninstall-gnome-extension reload-gnome-extension test-gnome-extension clean
+.PHONY: build-cli test-cli test-cli-short test-cli-cover install-cli install-gnome-extension install-kde install-waybar install-macos-tray uninstall-cli uninstall-gnome-extension reload-gnome-extension test-gnome-extension clean
 
 ## Build the Go binary
-build:
-	go build -o $(BINARY_NAME) ./cmd/claude-usage/
+build-cli:
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) ./cmd/claude-usage/
 
-## Install everything
-install: build install-binary install-gnome-extension
+## Run all tests (unit + integration)
+test-cli:
+	go test -v -count=1 ./...
+
+## Run unit tests only (skip integration)
+test-cli-short:
+	go test -v -short -count=1 ./...
+
+## Show per-function test coverage
+test-cli-cover:
+	go test -short -coverprofile=/tmp/claude-usage-coverage.out ./cmd/claude-usage/
+	go tool cover -func=/tmp/claude-usage-coverage.out
 
 ## Install the Go binary to ~/.local/bin
-install-binary: build
+install-cli: build-cli
 	mkdir -p $(INSTALL_DIR)
 	cp $(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
 	@echo "Installed $(BINARY_NAME) to $(INSTALL_DIR)"
@@ -38,11 +52,8 @@ reload-gnome-extension:
 test-gnome-extension: install-gnome-extension
 	dbus-run-session gnome-shell --devkit --wayland
 
-## Uninstall everything
-uninstall: uninstall-binary uninstall-gnome-extension
-
 ## Remove the binary
-uninstall-binary:
+uninstall-cli:
 	rm -f $(INSTALL_DIR)/$(BINARY_NAME)
 	@echo "Removed $(BINARY_NAME) from $(INSTALL_DIR)"
 

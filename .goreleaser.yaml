@@ -4,6 +4,8 @@ project_name: claude-usage
 
 before:
   hooks:
+    - go mod tidy
+    - go test -short ./...
     - tar czf claude-usage-readers.tar.gz -C readers gnome-shell-extension kde-plasmoid waybar statusline hooks
 
 builds:
@@ -20,6 +22,10 @@ builds:
       - arm64
     ldflags:
       - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
 
   - id: tray
     main: ./readers/macos-tray/
@@ -65,8 +71,6 @@ archives:
       - binary
     name_template: >-
       {{ .ProjectName }}-tray_{{ .Os }}_{{ .Arch }}
-
-
 
   # GNOME Shell extension bundle (for manual install)
   - id: gnome-extension

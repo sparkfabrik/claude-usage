@@ -14,7 +14,8 @@ import (
 	"github.com/Monska85/claude-usage/internal/cache"
 )
 
-const apiURL = "https://api.anthropic.com/v1/messages"
+// DefaultAPIURL is the production Anthropic Messages API endpoint.
+const DefaultAPIURL = "https://api.anthropic.com/v1/messages"
 
 // maxErrorBodyBytes limits how much of an API error response body we read.
 const maxErrorBodyBytes = 4096
@@ -32,7 +33,11 @@ type pollMessage struct {
 }
 
 // Poll sends a 1-token request and extracts rate-limit headers.
-func Poll(accessToken, model string, timeout time.Duration) (*cache.QuotaCache, error) {
+// If apiURL is empty, DefaultAPIURL is used.
+func Poll(accessToken, model string, timeout time.Duration, apiURL string) (*cache.QuotaCache, error) {
+	if apiURL == "" {
+		apiURL = DefaultAPIURL
+	}
 	if model == "" {
 		model = "claude-haiku-4-5-20251001"
 	}
