@@ -69,6 +69,24 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   rm -f "$BIN_DIR/claude-usage"
   rm -f "$BIN_DIR/claude-usage-tray"
   rm -f "$BIN_DIR/claude-usage-waybar.sh"
+  rm -f "$BIN_DIR/claude-usage-statusline.sh"
+
+  # Remove statusLine from Claude Code settings
+  SETTINGS="$HOME/.claude/settings.json"
+  if [ -f "$SETTINGS" ] && grep -q "claude-usage-statusline" "$SETTINGS" 2>/dev/null; then
+    python3 - "$SETTINGS" <<'PYEOF2'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    cfg = json.load(f)
+if "statusLine" in cfg and "claude-usage" in cfg.get("statusLine", {}).get("command", ""):
+    del cfg["statusLine"]
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF2
+    changed "statusLine removed from $SETTINGS"
+  fi
 
   # Remove GNOME extension symlink
   EXT_DIR="$HOME/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
@@ -257,6 +275,41 @@ case "$READER" in
     echo ""
     ;;
 esac
+
+# --- Claude Code statusline ------------------------------------------------
+STATUSLINE_SCRIPT="$INSTALL_DIR/readers/statusline/claude-usage-statusline.sh"
+SETTINGS="$HOME/.claude/settings.json"
+ln -sf "$STATUSLINE_SCRIPT" "$BIN_DIR/claude-usage-statusline.sh"
+
+if [ -f "$STATUSLINE_SCRIPT" ]; then
+  STATUSLINE_CMD="bash $BIN_DIR/claude-usage-statusline.sh"
+  STATUSLINE_NEEDED=false
+
+  if [ ! -f "$SETTINGS" ]; then
+    mkdir -p "$(dirname "$SETTINGS")"
+    echo '{}' > "$SETTINGS"
+    STATUSLINE_NEEDED=true
+  elif ! grep -q "claude-usage-statusline" "$SETTINGS" 2>/dev/null; then
+    STATUSLINE_NEEDED=true
+  fi
+
+  if [ "$STATUSLINE_NEEDED" = true ]; then
+    python3 - "$SETTINGS" "$STATUSLINE_CMD" <<'PYEOF2'
+import json, sys
+
+path, cmd = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    cfg = json.load(f)
+
+cfg["statusLine"] = {"type": "command", "command": cmd}
+
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF2
+    changed "statusLine registered in $SETTINGS"
+  fi
+fi
 
 # --- Finalize -------------------------------------------------------------
 echo "$CLAUDE_USAGE_VERSION" > "$INSTALL_DIR/.version"
