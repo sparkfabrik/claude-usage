@@ -2,8 +2,8 @@
     "KPlugin": {
         "Id": "org.kde.plasma.claude-usage",
         "Name": "Claude Usage",
-        "Description": "Monitor Claude Code API utilization",
-        "Icon": "preferences-system-network",
+        "Description": "Claude Code quota utilization monitor",
+        "Icon": "speedometer",
         "Authors": [
             {
                 "Name": "SparkFabrik",
@@ -12,11 +12,8 @@
         ],
         "Category": "System Information",
         "License": "GPL-3.0",
-        "Version": "1.0.0",
-        "Website": "https://github.com/sparkfabrik/claude-usage"
+        "Version": "1.0.0"
     },
-    "X-Plasma-API": "declarativeappletscript",
     "X-Plasma-API-Minimum-Version": "6.0",
-    "X-Plasma-MainScript": "ui/main.qml",
     "KPackageStructure": "Plasma/Applet"
 }

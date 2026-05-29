@@ -1,87 +1,81 @@
-import QtQuick 2.15
-import QtQuick.Layouts 1.15
-import org.kde.plasma.plasmoid 2.0
-import org.kde.plasma.plasma5support as P5Support
-import org.kde.plasma.components 3.0 as PlasmaComponents
-import org.kde.plasma.extras 2.0 as PlasmaExtras
-import org.kde.kirigami as Kirigami
+import QtQuick
+import QtQuick.Layouts
+import org.kde.plasma.plasmoid
+import org.kde.plasma.core as PlasmaCore
+import org.kde.plasma.components as PlasmaComponents
+import org.kde.plasma.plasma5support as Plasma5Support
 
 PlasmoidItem {
     id: root
 
-    property var statusData: ({})
+    property int cPct: 0
+    property int wPct: 0
+    property string cReset: "?"
+    property string wReset: "?"
+    property bool stale: false
+    property bool claudeRunning: false
     property bool hasData: false
-    property bool isStale: false
-    property bool claudeRunning: true
-    property string binaryPath: ""
-    property string errorMessage: ""
+    property string errorMsg: ""
 
-    preferredRepresentation: compactRepresentation
+    // Colors
+    readonly property string claudeOrange: "#D97757"
+    readonly property string warningAmber: "#E6961E"
+    readonly property string criticalRed: "#DC3232"
 
-    toolTipMainText: "Claude Usage"
-    toolTipSubText: {
-        if (!hasData) return "No data available"
-        if (errorMessage) return "Error: " + errorMessage
-        return "5h: " + statusData.c_pct + "% | 7d: " + statusData.w_pct + "%"
+    Plasmoid.status: hasData && claudeRunning ? PlasmaCore.Types.ActiveStatus : PlasmaCore.Types.HiddenStatus
+
+    function colorForPct(pct) {
+        if (pct >= 95) return criticalRed;
+        if (pct >= 75) return warningAmber;
+        return claudeOrange;
     }
 
-    Component.onCompleted: {
-        findBinary()
+    function glyphForPct(pct) {
+        if (pct < 50) return "◔";
+        if (pct < 75) return "◑";
+        if (pct < 95) return "◕";
+        return "●";
     }
 
-    function findBinary() {
-        whichSource.connectedSources = ["which claude-usage || echo ''"]
+    function parseOutput(stdout) {
+        var text = stdout.trim();
+        if (!text) {
+            hasData = false;
+            return;
+        }
+        try {
+            var data = JSON.parse(text);
+            cPct = data.c_pct || 0;
+            wPct = data.w_pct || 0;
+            cReset = data.c_reset || "?";
+            wReset = data.w_reset || "?";
+            stale = data.stale || false;
+            claudeRunning = data.claude_running !== false;
+            errorMsg = data.error || "";
+            hasData = true;
+        } catch (e) {
+            hasData = false;
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: executable
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: function(source, data) {
+            var stdout = data["stdout"] || "";
+            disconnectSource(source);
+            parseOutput(stdout);
+        }
     }
 
     function pollStatus() {
-        if (binaryPath === "") return
-        statusSource.connectedSources = [binaryPath + " --status"]
-    }
-
-    P5Support.DataSource {
-        id: whichSource
-        engine: "executable"
-        connectedSources: []
-
-        onNewData: function(source, data) {
-            var stdout = data["stdout"].trim()
-            if (stdout && stdout !== "") {
-                root.binaryPath = stdout
-            } else {
-                root.binaryPath = StandardPaths.home + "/.local/bin/claude-usage"
-            }
-            disconnectSource(source)
-            pollStatus()
+        var cmd = "claude-usage --status 2>/dev/null || $HOME/.local/bin/claude-usage --status 2>/dev/null || echo ''";
+        if (executable.connectedSources.indexOf(cmd) !== -1) {
+            executable.disconnectSource(cmd);
         }
-    }
-
-    P5Support.DataSource {
-        id: statusSource
-        engine: "executable"
-        connectedSources: []
-
-        onNewData: function(source, data) {
-            var stdout = data["stdout"].trim()
-            var exitCode = data["exit code"]
-            disconnectSource(source)
-
-            if (exitCode !== 0 || stdout === "") {
-                root.hasData = false
-                root.errorMessage = "CLI error (exit " + exitCode + ")"
-                return
-            }
-
-            try {
-                root.statusData = JSON.parse(stdout)
-                root.hasData = true
-                root.isStale = root.statusData.stale || false
-                root.claudeRunning = root.statusData.claude_running !== false
-                root.errorMessage = root.statusData.error || ""
-            } catch (e) {
-                root.hasData = false
-                root.errorMessage = "JSON parse error"
-            }
-        }
+        executable.connectSource(cmd);
     }
 
     Timer {
@@ -89,86 +83,86 @@ PlasmoidItem {
         interval: 60000
         running: true
         repeat: true
+        triggeredOnStart: true
         onTriggered: pollStatus()
     }
 
-    compactRepresentation: Item {
-        Layout.minimumWidth: label.implicitWidth
-        Layout.preferredWidth: label.implicitWidth
+    preferredRepresentation: compactRepresentation
 
-        PlasmaComponents.Label {
-            id: label
-            anchors.fill: parent
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            opacity: root.isStale ? 0.5 : (root.claudeRunning ? 1.0 : 0.3)
-            visible: root.claudeRunning || root.isStale
+    compactRepresentation: MouseArea {
+        id: compactMouse
+        Layout.preferredWidth: root.hasData ? compactGrid.implicitWidth : 0
+        Layout.preferredHeight: root.hasData ? compactGrid.implicitHeight : 0
+        visible: root.hasData && root.claudeRunning
+        onClicked: root.expanded = !root.expanded
 
-            text: {
-                if (!root.hasData) return "C:?"
-                return "C:" + root.statusData.c_pct + "% W:" + root.statusData.w_pct + "%"
+        GridLayout {
+            id: compactGrid
+            anchors.centerIn: parent
+            columns: 2
+            columnSpacing: 2
+            rowSpacing: 0
+            opacity: root.stale ? 0.5 : 1.0
+
+            PlasmaComponents.Label {
+                text: root.stale ? "⚠" : root.glyphForPct(root.cPct)
+                color: root.claudeOrange
+                font.pixelSize: 11
+                Layout.rowSpan: 2
+                Layout.alignment: Qt.AlignVCenter
             }
 
-            color: {
-                if (!root.hasData) return Kirigami.Theme.textColor
-                return root.statusData.c_color || Kirigami.Theme.textColor
+            PlasmaComponents.Label {
+                text: "5h:" + root.cPct + "%"
+                color: root.colorForPct(root.cPct)
+                font.pixelSize: 11
             }
-        }
 
-        MouseArea {
-            anchors.fill: parent
-            onClicked: root.expanded = !root.expanded
+            PlasmaComponents.Label {
+                text: "7d:" + root.wPct + "%"
+                color: root.colorForPct(root.wPct)
+                font.pixelSize: 11
+            }
         }
     }
 
     fullRepresentation: ColumnLayout {
-        Layout.minimumWidth: 250
-        Layout.minimumHeight: 150
-        spacing: 8
+        Layout.preferredWidth: 200
+        Layout.preferredHeight: implicitHeight
+        spacing: 4
 
-        PlasmaExtras.Heading {
-            level: 4
-            text: "Claude Code Usage"
+        PlasmaComponents.Label {
+            text: "Claude Code Quota"
+            font.bold: true
+            font.pixelSize: 13
+            color: root.claudeOrange
+            Layout.bottomMargin: 2
         }
 
         PlasmaComponents.Label {
-            visible: root.hasData
-            text: "5h utilization: " + (root.statusData.c_pct || 0) + "%"
-            color: root.statusData.c_color || Kirigami.Theme.textColor
+            text: "5h: " + root.cPct + "%  ⟳ " + root.cReset
+            color: root.colorForPct(root.cPct)
+            font.pixelSize: 12
         }
 
         PlasmaComponents.Label {
-            visible: root.hasData
-            text: "Resets in: " + (root.statusData.c_reset || "?")
+            text: "7d: " + root.wPct + "%  ⟳ " + root.wReset
+            color: root.colorForPct(root.wPct)
+            font.pixelSize: 12
         }
 
         PlasmaComponents.Label {
-            visible: root.hasData
-            text: "7d utilization: " + (root.statusData.w_pct || 0) + "%"
-            color: root.statusData.w_color || Kirigami.Theme.textColor
-        }
-
-        PlasmaComponents.Label {
-            visible: root.hasData
-            text: "Resets in: " + (root.statusData.w_reset || "?")
-        }
-
-        PlasmaComponents.Label {
-            visible: root.errorMessage !== ""
-            text: "Error: " + root.errorMessage
-            color: "#dc3232"
-        }
-
-        PlasmaComponents.Label {
-            visible: !root.hasData && root.errorMessage === ""
-            text: "No data available"
-        }
-
-        PlasmaComponents.Label {
-            visible: root.isStale
-            text: "(data may be stale)"
+            visible: root.errorMsg !== ""
+            text: "Error: " + root.errorMsg
+            font.pixelSize: 11
             opacity: 0.6
-            font.italic: true
+        }
+
+        PlasmaComponents.Label {
+            visible: root.stale
+            text: "⚠ Data may be stale"
+            color: root.warningAmber
+            font.pixelSize: 11
         }
     }
 }
