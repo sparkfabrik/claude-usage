@@ -178,10 +178,15 @@ if [ -f "$INSTALL_DIR/.version" ]; then
 fi
 
 # --- Download binaries ----------------------------------------------------
-if [ "$CURRENT_VERSION" = "$CLAUDE_USAGE_VERSION" ]; then
+# Skip the download only when the recorded version matches AND all downloaded
+# artifacts are actually present. Keying on .version alone would treat a
+# hand-deleted binary or readers dir as up-to-date and never repair it.
+SKIP_DOWNLOAD=false
+if [ "$CURRENT_VERSION" = "$CLAUDE_USAGE_VERSION" ] \
+   && [ -x "$INSTALL_DIR/bin/claude-usage" ] \
+   && { [ "$OS" != "darwin" ] || [ -x "$INSTALL_DIR/bin/claude-usage-tray" ]; } \
+   && [ -d "$INSTALL_DIR/readers" ]; then
   SKIP_DOWNLOAD=true
-else
-  SKIP_DOWNLOAD=false
 fi
 
 if [ "$SKIP_DOWNLOAD" = false ]; then
@@ -222,14 +227,6 @@ mkdir -p "$INSTALL_DIR/readers"
 tar xzf "$TMP_DIR/readers.tar.gz" -C "$INSTALL_DIR/readers"
 chmod +x "$INSTALL_DIR/readers/waybar/claude-usage-waybar.sh" 2>/dev/null || true
 
-# --- Create symlinks ------------------------------------------------------
-mkdir -p "$BIN_DIR"
-ln -sf "$INSTALL_DIR/bin/claude-usage" "$BIN_DIR/claude-usage"
-
-if [ "$OS" = "darwin" ]; then
-  ln -sf "$INSTALL_DIR/bin/claude-usage-tray" "$BIN_DIR/claude-usage-tray"
-fi
-
 # PATH warning
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
@@ -242,6 +239,16 @@ case ":$PATH:" in
     ;;
 esac
 
+fi
+
+# --- Create symlinks ------------------------------------------------------
+# Always (re)create core symlinks, even on the skip-download fast path, so a
+# hand-deleted symlink is repaired on rerun. ln -sf is idempotent.
+mkdir -p "$BIN_DIR"
+ln -sf "$INSTALL_DIR/bin/claude-usage" "$BIN_DIR/claude-usage"
+
+if [ "$OS" = "darwin" ]; then
+  ln -sf "$INSTALL_DIR/bin/claude-usage-tray" "$BIN_DIR/claude-usage-tray"
 fi
 
 # --- Reader detection and install -----------------------------------------
