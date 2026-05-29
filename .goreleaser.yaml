@@ -4,7 +4,7 @@ project_name: claude-usage
 
 before:
   hooks:
-    - tar czf claude-usage-readers.tar.gz -C readers gnome-shell-extension kde-plasmoid waybar
+    - tar czf claude-usage-readers.tar.gz -C readers gnome-shell-extension kde-plasmoid waybar statusline
 
 builds:
   - id: cli

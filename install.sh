@@ -142,12 +142,14 @@ if [ -f "$INSTALL_DIR/.version" ]; then
   CURRENT_VERSION=$(cat "$INSTALL_DIR/.version")
 fi
 
+# --- Download binaries ----------------------------------------------------
 if [ "$CURRENT_VERSION" = "$CLAUDE_USAGE_VERSION" ]; then
-  echo "OK: already up to date ($CLAUDE_USAGE_VERSION)"
-  exit 0
+  SKIP_DOWNLOAD=true
+else
+  SKIP_DOWNLOAD=false
 fi
 
-# --- Download binaries ----------------------------------------------------
+if [ "$SKIP_DOWNLOAD" = false ]; then
 RELEASE_URL="https://github.com/$REPO/releases/download/$CLAUDE_USAGE_VERSION"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -204,6 +206,8 @@ case ":$PATH:" in
     echo ""
     ;;
 esac
+
+fi
 
 # --- Reader detection and install -----------------------------------------
 READER="none"
