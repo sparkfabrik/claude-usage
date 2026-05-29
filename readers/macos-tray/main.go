@@ -12,9 +12,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
+
+// init locks the main goroutine to the startup (main) OS thread. Cocoa/AppKit
+// requires that NSApplication setup and [NSApp run] execute on the process main
+// thread; without this lock the Go scheduler may migrate goroutine 1 onto
+// another OS thread, causing a SIGTRAP inside AppKit during cgo execution.
+func init() {
+	runtime.LockOSThread()
+}
 
 type StatusResponse struct {
 	CPct          int    `json:"c_pct"`
