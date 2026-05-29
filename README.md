@@ -43,7 +43,27 @@ Claude Code has no public usage API. This tool polls the Anthropic API with a mi
 
 ## Installation
 
-### Build and install everything
+### Quick install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | bash
+```
+
+This auto-detects your OS, architecture, and desktop environment, then installs the CLI binary and the appropriate reader (GNOME extension, KDE plasmoid, Waybar module, or macOS tray).
+
+**Pin a specific version:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_VERSION=v1.0.0 bash
+```
+
+**Uninstall:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | bash -s -- --uninstall
+```
+
+### Build from source
 
 ```bash
 make install
@@ -51,44 +71,19 @@ make install
 
 This builds the binary, installs it to `~/.local/bin/claude-usage`, and copies the GNOME Shell extension.
 
-### Binary only
+### Per-reader manual install
 
-```bash
-make install-binary
-```
+**Binary only:** `make install-binary`
 
-### Extension only
+**GNOME extension:** `make install-gnome-extension && gnome-extensions enable claude-usage@claude-code-usage`
 
-```bash
-make install-gnome-extension
-gnome-extensions enable claude-usage@claude-code-usage
-```
+**KDE plasmoid:** `make install-kde` — then add "Claude Usage" widget to your panel.
 
-> **Note:** On Wayland, you must log out and back in (or use a nested shell) for extension changes to take effect.
+**Waybar module:** `make install-waybar` — then add to Waybar config. See [readers/waybar/README.md](readers/waybar/README.md).
 
-### KDE Plasma 6 plasmoid
+**macOS tray:** `make install-macos-tray` — requires macOS and CGo.
 
-```bash
-make install-kde
-```
-
-Then add "Claude Usage" widget to your panel. See [readers/kde-plasmoid/README.md](readers/kde-plasmoid/README.md).
-
-### Waybar module
-
-```bash
-make install-waybar
-```
-
-Add to your Waybar config. See [readers/waybar/README.md](readers/waybar/README.md).
-
-### macOS tray app
-
-```bash
-make install-macos-tray
-```
-
-Requires macOS and CGo. See [readers/macos-tray/README.md](readers/macos-tray/README.md).
+> **Note:** On Wayland/GNOME, you must log out and back in for extension changes to take effect.
 
 ## Usage
 

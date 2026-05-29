@@ -44,7 +44,7 @@ archives:
       - LICENSE
       - config.default.yaml
 
-  # Raw binary (no archive wrapper, direct curl download)
+  # Raw CLI binary (no archive wrapper, direct curl download)
   - id: binary
     builds:
       - cli
@@ -53,19 +53,30 @@ archives:
     name_template: >-
       {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
 
-  # macOS tray binary
-  - id: tray
+  # Raw tray binary (no archive wrapper, for installer)
+  - id: tray-binary
     builds:
       - tray
     formats:
-      - tar.gz
+      - binary
     name_template: >-
-      {{ .ProjectName }}-tray_{{ .Version }}_{{ .Os }}_{{ .Arch }}
-    files:
-      - README.md
-      - LICENSE
+      {{ .ProjectName }}-tray_{{ .Os }}_{{ .Arch }}
 
-  # GNOME Shell extension bundle (arch-independent)
+  # All reader assets (arch-independent, for installer)
+  - id: readers
+    formats:
+      - tar.gz
+    name_template: "claude-usage-readers"
+    meta: true
+    files:
+      - src: readers/gnome-shell-extension/**/*
+        dst: gnome-shell-extension/
+      - src: readers/kde-plasmoid/**/*
+        dst: kde-plasmoid/
+      - src: readers/waybar/*
+        dst: waybar/
+
+  # GNOME Shell extension bundle (for manual install)
   - id: gnome-extension
     formats:
       - zip
