@@ -15,46 +15,76 @@ import (
 )
 
 type StatusResponse struct {
-	CPct         int    `json:"c_pct"`
-	CReset       string `json:"c_reset"`
-	CColor       string `json:"c_color"`
-	WPct         int    `json:"w_pct"`
-	WReset       string `json:"w_reset"`
-	WColor       string `json:"w_color"`
-	Stale        bool   `json:"stale"`
-	ClaudeRunning bool  `json:"claude_running"`
-	Auth         string `json:"auth"`
-	Error        string `json:"error"`
+	CPct          int    `json:"c_pct"`
+	CReset        string `json:"c_reset"`
+	CColor        string `json:"c_color"`
+	WPct          int    `json:"w_pct"`
+	WReset        string `json:"w_reset"`
+	WColor        string `json:"w_color"`
+	Stale         bool   `json:"stale"`
+	ClaudeRunning bool   `json:"claude_running"`
+	Auth          string `json:"auth"`
+	Error         string `json:"error"`
 }
 
 var (
-	mu          sync.Mutex
-	status      StatusResponse
-	binaryPath  string
-	mDetail5h   *systray.MenuItem
-	mDetail7d   *systray.MenuItem
-	mAuth       *systray.MenuItem
-	mError      *systray.MenuItem
-	mRefresh    *systray.MenuItem
-	mQuit       *systray.MenuItem
+	mu         sync.Mutex
+	status     StatusResponse
+	binaryPath string
+
+	mStatus    *systray.MenuItem
+	mDetail5h  *systray.MenuItem
+	mReset5h   *systray.MenuItem
+	mDetail7d  *systray.MenuItem
+	mReset7d   *systray.MenuItem
+	mAuth      *systray.MenuItem
+	mError     *systray.MenuItem
+	mRefresh   *systray.MenuItem
+	mQuit      *systray.MenuItem
 )
 
 func main() {
 	systray.Run(onReady, onExit)
 }
 
+// quotaGlyph returns the appropriate glyph for 5h utilization percentage.
+func quotaGlyph(pct int) string {
+	switch {
+	case pct >= 95:
+		return "●"
+	case pct >= 75:
+		return "◕"
+	case pct >= 50:
+		return "◑"
+	default:
+		return "◔"
+	}
+}
+
+// formatReset returns the reset duration or "—" if empty/unknown.
+func formatReset(reset string) string {
+	if reset == "" || reset == "?" {
+		return "—"
+	}
+	return reset
+}
+
 func onReady() {
-	systray.SetTitle("C:--")
+	systray.SetTitle("◌ —")
 	systray.SetTooltip("Claude Usage")
 
+	mStatus = systray.AddMenuItem("Status: idle", "Current state")
+	systray.AddSeparator()
 	mDetail5h = systray.AddMenuItem("5h: --", "5-hour utilization")
+	mReset5h = systray.AddMenuItem("  resets in —", "5h reset timer")
 	mDetail7d = systray.AddMenuItem("7d: --", "7-day utilization")
+	mReset7d = systray.AddMenuItem("  resets in —", "7d reset timer")
 	mAuth = systray.AddMenuItem("", "Auth state")
 	mAuth.Hide()
 	mError = systray.AddMenuItem("", "Error info")
 	mError.Hide()
 	systray.AddSeparator()
-	mRefresh = systray.AddMenuItem("Refresh Now", "Force poll and refresh")
+	mRefresh = systray.AddMenuItem("Refresh now", "Force poll and refresh")
 	mQuit = systray.AddMenuItem("Quit", "Quit the tray app")
 
 	binaryPath = findBinary()
@@ -109,7 +139,7 @@ func pollAndUpdate(forcePoll bool) {
 	cmd := exec.Command(binaryPath, args...)
 	out, err := cmd.Output()
 	if err != nil {
-		setIdleState()
+		setErrorState()
 		return
 	}
 
@@ -117,7 +147,7 @@ func pollAndUpdate(forcePoll bool) {
 	defer mu.Unlock()
 
 	if err := json.Unmarshal(out, &status); err != nil {
-		setIdleState()
+		setErrorStateLocked()
 		return
 	}
 
@@ -128,21 +158,37 @@ func updateDisplay() {
 	updateAuth(status.Auth)
 
 	if !status.ClaudeRunning {
-		systray.SetTitle("C:--")
-		mDetail5h.SetTitle("5h: idle")
-		mDetail7d.SetTitle("7d: idle")
+		systray.SetTitle("◌ —")
+		mStatus.SetTitle("Status: idle")
+		mDetail5h.SetTitle("5h: --")
+		mReset5h.SetTitle("  resets in —")
+		mDetail7d.SetTitle("7d: --")
+		mReset7d.SetTitle("  resets in —")
 		mError.Hide()
+		mAuth.Hide()
 		return
 	}
 
-	title := fmt.Sprintf("C:%d%% W:%d%%", status.CPct, status.WPct)
+	// Title: <glyph> 5h <c_pct>% · 7d <w_pct>%
+	glyph := quotaGlyph(status.CPct)
+	title := fmt.Sprintf("%s 5h %d%% · 7d %d%%", glyph, status.CPct, status.WPct)
 	if status.Stale {
 		title += " ?"
 	}
 	systray.SetTitle(title)
 
-	mDetail5h.SetTitle(fmt.Sprintf("5h: %d%% (resets in %s)", status.CPct, status.CReset))
-	mDetail7d.SetTitle(fmt.Sprintf("7d: %d%% (resets in %s)", status.WPct, status.WReset))
+	// Status line
+	if status.Stale {
+		mStatus.SetTitle("Status: stale")
+	} else {
+		mStatus.SetTitle("Status: active")
+	}
+
+	// Dropdown detail
+	mDetail5h.SetTitle(fmt.Sprintf("5h: %d%%", status.CPct))
+	mReset5h.SetTitle(fmt.Sprintf("  resets in %s", formatReset(status.CReset)))
+	mDetail7d.SetTitle(fmt.Sprintf("7d: %d%%", status.WPct))
+	mReset7d.SetTitle(fmt.Sprintf("  resets in %s", formatReset(status.WReset)))
 
 	if status.Error != "" {
 		mError.SetTitle("Error: " + status.Error)
@@ -153,7 +199,6 @@ func updateDisplay() {
 }
 
 // updateAuth shows the auth-state menu item (hidden when valid).
-// systray has no per-item color, so state is conveyed by text/glyph.
 func updateAuth(authState string) {
 	switch authState {
 	case "valid":
@@ -170,13 +215,19 @@ func updateAuth(authState string) {
 	}
 }
 
-func setIdleState() {
+func setErrorState() {
 	mu.Lock()
 	defer mu.Unlock()
-	systray.SetTitle("C:?")
-	mDetail5h.SetTitle("5h: error")
-	mDetail7d.SetTitle("7d: error")
+	setErrorStateLocked()
+}
+
+func setErrorStateLocked() {
+	systray.SetTitle("⚠ —")
+	mStatus.SetTitle("Status: error")
+	mDetail5h.SetTitle("5h: --")
+	mReset5h.SetTitle("  resets in —")
+	mDetail7d.SetTitle("7d: --")
+	mReset7d.SetTitle("  resets in —")
 	mError.Hide()
-	mAuth.SetTitle("Auth: unknown")
-	mAuth.Show()
+	mAuth.Hide()
 }
