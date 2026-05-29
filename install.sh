@@ -262,26 +262,31 @@ case "$READER" in
   macos)
     # Tray already installed above; register session hooks
     HOOKS_DIR="$INSTALL_DIR/hooks"
+    HOOKS_SRC="$INSTALL_DIR/readers/hooks"
     mkdir -p "$HOOKS_DIR"
-    cp "$INSTALL_DIR/readers/hooks/start.sh" "$HOOKS_DIR/start.sh"
-    cp "$INSTALL_DIR/readers/hooks/stop.sh" "$HOOKS_DIR/stop.sh"
-    chmod +x "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh"
-
-    # Register hooks in ~/.claude/settings.json
-    START_CMD="$HOOKS_DIR/start.sh"
-    STOP_CMD="$HOOKS_DIR/stop.sh"
-    HOOKS_NEEDED=false
-
-    if [ ! -f "$SETTINGS" ]; then
-      mkdir -p "$(dirname "$SETTINGS")"
-      echo '{}' > "$SETTINGS"
-      HOOKS_NEEDED=true
-    elif ! grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
-      HOOKS_NEEDED=true
+    if [ -d "$HOOKS_SRC" ]; then
+      cp "$HOOKS_SRC/start.sh" "$HOOKS_DIR/start.sh"
+      cp "$HOOKS_SRC/stop.sh" "$HOOKS_DIR/stop.sh"
+      chmod +x "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh"
     fi
 
-    if [ "$HOOKS_NEEDED" = true ]; then
-      python3 - "$SETTINGS" "$START_CMD" "$STOP_CMD" <<'PYEOF_HOOKS'
+    # Register hooks in ~/.claude/settings.json (if hook scripts exist)
+    START_CMD="$HOOKS_DIR/start.sh"
+    STOP_CMD="$HOOKS_DIR/stop.sh"
+
+    if [ -x "$START_CMD" ] && [ -x "$STOP_CMD" ]; then
+      HOOKS_NEEDED=false
+
+      if [ ! -f "$SETTINGS" ]; then
+        mkdir -p "$(dirname "$SETTINGS")"
+        echo '{}' > "$SETTINGS"
+        HOOKS_NEEDED=true
+      elif ! grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
+        HOOKS_NEEDED=true
+      fi
+
+      if [ "$HOOKS_NEEDED" = true ]; then
+        python3 - "$SETTINGS" "$START_CMD" "$STOP_CMD" <<'PYEOF_HOOKS'
 import json, sys
 
 path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -308,7 +313,8 @@ with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 PYEOF_HOOKS
-      changed "session hooks registered"
+        changed "session hooks registered"
+      fi
     fi
 
     changed "macOS tray reader installed"
