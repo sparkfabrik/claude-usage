@@ -33,6 +33,7 @@ type StatusResponse struct {
 	WColor        string `json:"w_color"`
 	Stale         bool   `json:"stale"`
 	ClaudeRunning bool   `json:"claude_running"`
+	Auth          string `json:"auth"`
 	Error         string `json:"error,omitempty"`
 }
 
@@ -115,16 +116,23 @@ func runStatus(creds *auth.Credentials, cfg *config.Config, cachePath string, no
 
 	cached := cache.Read(cachePath)
 	claudeRunning := process.IsClaudeRunning()
+	authState := authStatus(creds)
 
 	if noPoll {
+		// Creds may be nil when --no-poll skips auth.Load() — report "unknown" not "missing".
+		if creds == nil {
+			authState = "unknown"
+		}
 		if cached == nil {
 			resp := buildStatusResponse(nil, cfg, "no cached data available")
 			resp.ClaudeRunning = claudeRunning
+			resp.Auth = authState
 			outputJSON(resp)
 			return
 		}
 		resp := buildStatusResponse(cached, cfg, "")
 		resp.ClaudeRunning = claudeRunning
+		resp.Auth = authState
 		outputJSON(resp)
 		return
 	}
@@ -158,7 +166,19 @@ func runStatus(creds *auth.Credentials, cfg *config.Config, cachePath string, no
 
 	resp := buildStatusResponse(cached, cfg, pollErr)
 	resp.ClaudeRunning = claudeRunning
+	resp.Auth = authState
 	outputJSON(resp)
+}
+
+// authStatus returns the auth state string for the status JSON.
+func authStatus(creds *auth.Credentials) string {
+	if creds == nil {
+		return "missing"
+	}
+	if creds.IsExpired() {
+		return "expired"
+	}
+	return "valid"
 }
 
 // outputJSON marshals v to JSON and writes to stdout.

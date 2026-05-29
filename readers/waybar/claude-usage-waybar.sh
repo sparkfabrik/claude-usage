@@ -41,6 +41,7 @@ c_reset = str(d.get("c_reset", "?"))
 w_reset = str(d.get("w_reset", "?"))
 stale = bool(d.get("stale", False))
 claude_running = d.get("claude_running", False)
+auth = str(d.get("auth", "unknown"))
 error = str(d.get("error", ""))
 
 # Hide if Claude not running and no error
@@ -58,7 +59,9 @@ else:
     glyph = "●"
 
 # CSS class
-if stale:
+if auth in ("expired", "missing"):
+    css_class = "error"
+elif stale:
     css_class = "error"
 elif c_pct >= 95:
     css_class = "critical"
@@ -78,6 +81,10 @@ lines = [
     f"5h: {c_pct}% (resets in {c_reset})",
     f"7d: {w_pct}% (resets in {w_reset})",
 ]
+if auth == "expired":
+    lines.append("Auth expired — run Claude Code to refresh")
+elif auth == "missing":
+    lines.append("No credentials found")
 if error:
     lines.append(f"Error: {error}")
 if stale:

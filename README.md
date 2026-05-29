@@ -112,6 +112,7 @@ claude-usage --status --force-poll
 
 # Cache-only status, no API call
 claude-usage --status --no-poll
+# The --status JSON includes an "auth" field: "valid" | "expired" | "missing" | "unknown"
 
 # Use custom config file
 claude-usage --config /path/to/config.yaml
@@ -129,24 +130,25 @@ C:42%  W:67%
 - **W** — Weekly period (7d window) utilization
 - Color-coded: green (<80%), orange (80–89%), red (>=90%)
 - Faded to 50% opacity when Claude Code is not running
+- Auth state when not valid: expired (orange) / missing (red) / unknown (grey)
 - Click for dropdown with reset times, status details, and "Refresh Now" button
 
 ### KDE Plasma 6 plasmoid
 
-Panel widget showing "C:X% W:Y%" with color-coded text. Click to expand details with reset times and error info. Dims at 50% opacity when data is stale, hides when Claude is not running.
+Panel widget showing "C:X% W:Y%" with color-coded text. Click to expand details with reset times and error info. Shows an auth-state line when credentials are expired or missing. Dims at 50% opacity when data is stale, hides when Claude is not running.
 
 ### Waybar module
 
 Displays a glyph + percentages: `◑ 5h:42% 7d:67%`
 
 - Glyphs: ◔ (<50%), ◑ (50-74%), ◕ (75-94%), ● (>=95%)
-- CSS classes: `normal`, `warning`, `critical`, `error`
-- Tooltip shows reset times
+- CSS classes: `normal`, `warning`, `critical`, `error` (`error` also when auth is expired/missing)
+- Tooltip shows reset times, plus an auth note when credentials are expired/missing
 - Hides when Claude is not running
 
 ### macOS tray
 
-Menu bar item showing "C:X% W:Y%". Click for dropdown with reset times, "Refresh Now", and "Quit".
+Menu bar item showing "C:X% W:Y%". Click for dropdown with reset times, auth state (shown when not valid), "Refresh Now", and "Quit".
 
 ## Configuration
 
