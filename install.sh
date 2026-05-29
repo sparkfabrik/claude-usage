@@ -89,8 +89,8 @@ PYEOF2
   fi
 
   # Remove session hooks from settings.json
-  if [ -f "$SETTINGS" ] && grep -q "claude-usage-sessions" "$SETTINGS" 2>/dev/null; then
-    HOOKS_DIR="$INSTALL_DIR/hooks"
+  HOOKS_DIR="$INSTALL_DIR/hooks"
+  if [ -f "$SETTINGS" ] && grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
     python3 - "$SETTINGS" "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh" <<'PYEOF_UNHOOK'
 import json, sys
 
@@ -120,7 +120,7 @@ PYEOF_UNHOOK
   fi
 
   # Kill tray if running
-  pkill -f "claude-usage-tray" 2>/dev/null || true
+  pkill -x "claude-usage-tray" 2>/dev/null || true
   rm -rf /tmp/claude-usage-sessions 2>/dev/null || true
 
   # Remove GNOME extension symlink
@@ -246,6 +246,7 @@ fi
 
 # --- Reader detection and install -----------------------------------------
 READER="none"
+SETTINGS="$HOME/.claude/settings.json"
 
 if [ "$OS" = "darwin" ]; then
   READER="macos"
@@ -275,7 +276,7 @@ case "$READER" in
       mkdir -p "$(dirname "$SETTINGS")"
       echo '{}' > "$SETTINGS"
       HOOKS_NEEDED=true
-    elif ! grep -q "claude-usage-sessions" "$SETTINGS" 2>/dev/null; then
+    elif ! grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
       HOOKS_NEEDED=true
     fi
 
@@ -293,8 +294,9 @@ def add_hook(section, cmd):
     entries = hooks.setdefault(section, [])
     # Remove stale entries for this command, then re-add
     for e in entries[:]:
-        if isinstance(e, dict):
-            e["hooks"] = [h for h in e.get("hooks", []) if not (isinstance(h, dict) and h.get("command") == cmd)]
+        if not isinstance(e, dict):
+            continue
+        e["hooks"] = [h for h in e.get("hooks", []) if not (isinstance(h, dict) and h.get("command") == cmd)]
         if not e.get("hooks"):
             entries.remove(e)
     entries.append({"hooks": [{"type": "command", "command": cmd, "timeout": 5}]})
