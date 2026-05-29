@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,8 +71,9 @@ func formatReset(reset string) string {
 }
 
 func onReady() {
-	systray.SetTitle("◌ —")
+	systray.SetTitle("")
 	systray.SetTooltip("Claude Usage")
+	setIcon("◌ —", colorClaudeOrange)
 
 	mStatus = systray.AddMenuItem("Status: idle", "Current state")
 	systray.AddSeparator()
@@ -158,7 +160,7 @@ func updateDisplay() {
 	updateAuth(status.Auth)
 
 	if !status.ClaudeRunning {
-		systray.SetTitle("◌ —")
+		setIcon("◌ —", colorClaudeOrange)
 		mStatus.SetTitle("Status: idle")
 		mDetail5h.SetTitle("5h: --")
 		mReset5h.SetTitle("  resets in —")
@@ -175,7 +177,10 @@ func updateDisplay() {
 	if status.Stale {
 		title += " ?"
 	}
-	systray.SetTitle(title)
+
+	// Color from c_color field
+	clr := parseHexColor(status.CColor)
+	setIcon(title, clr)
 
 	// Status line
 	if status.Stale {
@@ -222,7 +227,7 @@ func setErrorState() {
 }
 
 func setErrorStateLocked() {
-	systray.SetTitle("⚠ —")
+	setIcon("⚠ —", colorErrorRed)
 	mStatus.SetTitle("Status: error")
 	mDetail5h.SetTitle("5h: --")
 	mReset5h.SetTitle("  resets in —")
@@ -230,4 +235,16 @@ func setErrorStateLocked() {
 	mReset7d.SetTitle("  resets in —")
 	mError.Hide()
 	mAuth.Hide()
+}
+
+// setIcon renders text in the given color and sets it as the systray icon.
+// Falls back to SetTitle if rendering fails.
+func setIcon(text string, clr color.RGBA) {
+	icon, err := renderTextIcon(text, clr)
+	if err != nil {
+		systray.SetTitle(text)
+		return
+	}
+	systray.SetTitle("")
+	systray.SetIcon(icon)
 }
