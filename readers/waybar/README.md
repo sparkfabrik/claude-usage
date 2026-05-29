@@ -6,13 +6,13 @@ Custom Waybar module that displays Claude Code API utilization.
 
 - Waybar
 - `claude-usage` binary installed (in PATH or `~/.local/bin/`)
-- `jq` for JSON parsing
+- Python 3 (for JSON parsing)
 
 ## Install
 
 ```bash
-# From repo root
-make install-waybar
+# Via the installer (recommended):
+curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | bash
 
 # Or manually:
 cp readers/waybar/claude-usage-waybar.sh ~/.local/bin/
@@ -23,18 +23,17 @@ chmod +x ~/.local/bin/claude-usage-waybar.sh
 
 Add to your Waybar config (`~/.config/waybar/config`):
 
-```json
+```jsonc
+// Add "custom/claude-usage" to your modules list:
+"modules-right": ["custom/claude-usage", "clock", ...]
+
+// Add this module definition:
 "custom/claude-usage": {
     "exec": "~/.local/bin/claude-usage-waybar.sh",
     "return-type": "json",
-    "interval": 60
+    "interval": 60,
+    "tooltip": true
 }
-```
-
-Add to your modules list:
-
-```json
-"modules-right": ["custom/claude-usage", ...]
 ```
 
 ## Styling
@@ -42,25 +41,38 @@ Add to your modules list:
 Add to `~/.config/waybar/style.css`:
 
 ```css
-#custom-claude-usage.normal {
-    color: #32c850;
+#custom-claude-usage {
+    color: #D97757;  /* Claude orange */
+    font-weight: bold;
+    padding: 0 8px;
 }
+
 #custom-claude-usage.warning {
-    color: #f0c020;
+    color: #FFA500;
 }
+
 #custom-claude-usage.critical {
-    color: #dc3232;
+    color: #FF4444;
+    animation: blink 1s ease-in-out infinite;
 }
+
 #custom-claude-usage.error {
     color: #888888;
+    font-style: italic;
+}
+
+@keyframes blink {
+    50% { opacity: 0.5; }
 }
 ```
 
 ## How It Works
 
 - Called by Waybar every 60 seconds
+- Runs `claude-usage --status` and parses the JSON output
 - Displays glyph + percentages: `◑ 5h:42% 7d:67%`
 - Glyphs: ◔ (<50%), ◑ (50-74%), ◕ (75-94%), ● (>=95%)
-- CSS classes: normal, warning, critical, error
+- CSS classes: `normal`, `warning`, `critical`, `error`
 - Tooltip shows reset times
 - Outputs nothing when CLI missing or Claude not running (hides module)
+- Uses Python for JSON output (proper escaping, no `jq` dependency)

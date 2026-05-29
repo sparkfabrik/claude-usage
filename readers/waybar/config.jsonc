@@ -1,0 +1,14 @@
+// Add this module to your Waybar config (~/.config/waybar/config)
+//
+// 1. Add "custom/claude-usage" to your "modules-right" (or left/center):
+//    "modules-right": ["custom/claude-usage", "clock", ...]
+//
+// 2. Add this module definition:
+{
+    "custom/claude-usage": {
+        "exec": "~/.local/bin/claude-usage-waybar.sh",
+        "return-type": "json",
+        "interval": 60,
+        "tooltip": true
+    }
+}

@@ -1,0 +1,27 @@
+/* Claude Usage Waybar module styles
+ * Add these to your ~/.config/waybar/style.css
+ */
+
+#custom-claude-usage {
+    color: #D97757;  /* Claude orange */
+    font-weight: bold;
+    padding: 0 8px;
+}
+
+#custom-claude-usage.warning {
+    color: #FFA500;
+}
+
+#custom-claude-usage.critical {
+    color: #FF4444;
+    animation: blink 1s ease-in-out infinite;
+}
+
+#custom-claude-usage.error {
+    color: #888888;
+    font-style: italic;
+}
+
+@keyframes blink {
+    50% { opacity: 0.5; }
+}

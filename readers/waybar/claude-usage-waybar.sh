@@ -1,69 +1,89 @@
-#!/usr/bin/env bash
-# claude-usage-waybar.sh — Waybar custom module for Claude Code usage
-# Outputs JSON in Waybar format: {"text": "...", "tooltip": "...", "class": "..."}
-
-set -euo pipefail
+#!/bin/bash
+# claude-usage-waybar.sh — Waybar custom module for Claude Code quota
+# Outputs JSON in Waybar's custom module format.
+#
+# Waybar config (~/.config/waybar/config):
+#   "custom/claude-usage": {
+#       "exec": "~/.local/bin/claude-usage-waybar.sh",
+#       "return-type": "json",
+#       "interval": 60,
+#       "tooltip": true
+#   }
+#
+# Outputs nothing if CLI is missing or Claude is not running.
 
 # Find claude-usage binary
-if command -v claude-usage &>/dev/null; then
+if command -v claude-usage >/dev/null 2>&1; then
     BIN="claude-usage"
-elif [[ -x "$HOME/.local/bin/claude-usage" ]]; then
+elif [ -x "$HOME/.local/bin/claude-usage" ]; then
     BIN="$HOME/.local/bin/claude-usage"
 else
-    # CLI not found — output nothing (hides Waybar module)
     exit 0
 fi
 
 # Call --status, exit silently on error
 STATUS=$("$BIN" --status 2>/dev/null) || exit 0
+[ -z "$STATUS" ] && exit 0
 
-# Parse JSON fields
-c_pct=$(echo "$STATUS" | jq -r '.c_pct // 0')
-w_pct=$(echo "$STATUS" | jq -r '.w_pct // 0')
-c_reset=$(echo "$STATUS" | jq -r '.c_reset // "?"')
-w_reset=$(echo "$STATUS" | jq -r '.w_reset // "?"')
-stale=$(echo "$STATUS" | jq -r '.stale // false')
-claude_running=$(echo "$STATUS" | jq -r '.claude_running // false')
-error=$(echo "$STATUS" | jq -r '.error // ""')
+# Parse and produce Waybar JSON entirely in Python to avoid
+# shell interpolation issues with JSON escaping.
+python3 - "$STATUS" <<'PYEOF'
+import json, sys
 
-# If Claude not running and no error, optionally hide
-if [[ "$claude_running" == "false" && "$error" == "" ]]; then
-    exit 0
-fi
+try:
+    d = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
 
-# Glyph selection based on c_pct
-if (( c_pct >= 95 )); then
-    glyph="●"
-elif (( c_pct >= 75 )); then
-    glyph="◕"
-elif (( c_pct >= 50 )); then
-    glyph="◑"
-else
-    glyph="◔"
-fi
+c_pct = int(d.get("c_pct", 0))
+w_pct = int(d.get("w_pct", 0))
+c_reset = str(d.get("c_reset", "?"))
+w_reset = str(d.get("w_reset", "?"))
+stale = bool(d.get("stale", False))
+claude_running = d.get("claude_running", False)
+error = str(d.get("error", ""))
 
-# CSS class logic
-if [[ "$stale" == "true" ]]; then
-    class="error"
-elif (( c_pct >= 95 )); then
-    class="critical"
-elif (( c_pct >= 75 )); then
-    class="warning"
-else
-    class="normal"
-fi
+# Hide if Claude not running and no error
+if not claude_running and not error:
+    sys.exit(0)
+
+# Glyph based on 5h utilization
+if c_pct < 50:
+    glyph = "◔"
+elif c_pct < 75:
+    glyph = "◑"
+elif c_pct < 95:
+    glyph = "◕"
+else:
+    glyph = "●"
+
+# CSS class
+if stale:
+    css_class = "error"
+elif c_pct >= 95:
+    css_class = "critical"
+elif c_pct >= 75:
+    css_class = "warning"
+else:
+    css_class = "normal"
 
 # Build text
-text="$glyph 5h:${c_pct}% 7d:${w_pct}%"
-if [[ "$stale" == "true" ]]; then
-    text="$text ?"
-fi
+stale_suffix = " ?" if stale else ""
+text = f"{glyph} 5h:{c_pct}% 7d:{w_pct}%{stale_suffix}"
 
 # Build tooltip
-tooltip="Claude Code Quota\n━━━━━━━━━━━━━━━━\n5h: ${c_pct}% (resets in ${c_reset})\n7d: ${w_pct}% (resets in ${w_reset})"
-if [[ -n "$error" ]]; then
-    tooltip="$tooltip\n\nError: $error"
-fi
+lines = [
+    "Claude Code Quota",
+    "━━━━━━━━━━━━━━━━",
+    f"5h: {c_pct}% (resets in {c_reset})",
+    f"7d: {w_pct}% (resets in {w_reset})",
+]
+if error:
+    lines.append(f"Error: {error}")
+if stale:
+    lines.append("⚠ Data may be stale")
+tooltip = "\n".join(lines)
 
-# Output Waybar JSON
-printf '{"text": "%s", "tooltip": "%s", "class": "%s"}\n' "$text" "$tooltip" "$class"
+# Output valid JSON via json.dumps (handles escaping)
+print(json.dumps({"text": text, "tooltip": tooltip, "class": css_class}))
+PYEOF
