@@ -23,6 +23,7 @@ type StatusResponse struct {
 	WColor       string `json:"w_color"`
 	Stale        bool   `json:"stale"`
 	ClaudeRunning bool  `json:"claude_running"`
+	Auth         string `json:"auth"`
 	Error        string `json:"error"`
 }
 
@@ -32,6 +33,7 @@ var (
 	binaryPath  string
 	mDetail5h   *systray.MenuItem
 	mDetail7d   *systray.MenuItem
+	mAuth       *systray.MenuItem
 	mError      *systray.MenuItem
 	mRefresh    *systray.MenuItem
 	mQuit       *systray.MenuItem
@@ -47,6 +49,8 @@ func onReady() {
 
 	mDetail5h = systray.AddMenuItem("5h: --", "5-hour utilization")
 	mDetail7d = systray.AddMenuItem("7d: --", "7-day utilization")
+	mAuth = systray.AddMenuItem("", "Auth state")
+	mAuth.Hide()
 	mError = systray.AddMenuItem("", "Error info")
 	mError.Hide()
 	systray.AddSeparator()
@@ -121,6 +125,8 @@ func pollAndUpdate(forcePoll bool) {
 }
 
 func updateDisplay() {
+	updateAuth(status.Auth)
+
 	if !status.ClaudeRunning {
 		systray.SetTitle("C:--")
 		mDetail5h.SetTitle("5h: idle")
@@ -146,10 +152,31 @@ func updateDisplay() {
 	}
 }
 
+// updateAuth shows the auth-state menu item (hidden when valid).
+// systray has no per-item color, so state is conveyed by text/glyph.
+func updateAuth(authState string) {
+	switch authState {
+	case "valid":
+		mAuth.Hide()
+	case "expired":
+		mAuth.SetTitle("⚠ Auth expired — run Claude Code to refresh")
+		mAuth.Show()
+	case "missing":
+		mAuth.SetTitle("⚠ No credentials found")
+		mAuth.Show()
+	default:
+		mAuth.SetTitle("Auth: unknown")
+		mAuth.Show()
+	}
+}
+
 func setIdleState() {
 	mu.Lock()
 	defer mu.Unlock()
 	systray.SetTitle("C:?")
 	mDetail5h.SetTitle("5h: error")
 	mDetail7d.SetTitle("7d: error")
+	mError.Hide()
+	mAuth.SetTitle("Auth: unknown")
+	mAuth.Show()
 }

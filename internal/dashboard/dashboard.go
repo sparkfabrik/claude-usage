@@ -101,12 +101,12 @@ func RenderAccount(creds *auth.Credentials) string {
 	}
 	expired := ""
 	if creds.IsExpired() {
-		expired = redStyle.Render(" (EXPIRED)")
+		expired = "\n  " + redStyle.Render("Auth expired") + dimStyle.Render(" — run Claude Code to refresh")
 	}
 
 	return border.Render(
 		titleStyle.Render("Account") + "\n" +
-			fmt.Sprintf("  Plan: %s%s\n  Rate Tier: %s", boldStyle.Render(sub), expired, dimStyle.Render(tier)),
+			fmt.Sprintf("  Plan: %s\n  Rate Tier: %s", boldStyle.Render(sub), dimStyle.Render(tier)) + expired,
 	)
 }
 

@@ -16,6 +16,7 @@ PlasmoidItem {
     property bool claudeRunning: false
     property bool hasData: false
     property string errorMsg: ""
+    property string authState: "unknown"
 
     // Colors
     readonly property string claudeOrange: "#D97757"
@@ -52,6 +53,7 @@ PlasmoidItem {
             stale = data.stale || false;
             claudeRunning = data.claude_running !== false;
             errorMsg = data.error || "";
+            authState = data.auth || "unknown";
             hasData = true;
         } catch (e) {
             hasData = false;
@@ -152,6 +154,21 @@ PlasmoidItem {
             text: "7d: " + root.wPct + "%  ⟳ " + root.wReset
             color: root.colorForPct(root.wPct)
             font.pixelSize: 12
+        }
+
+        PlasmaComponents.Label {
+            visible: root.hasData && root.authState !== "valid"
+            text: {
+                if (root.authState === "expired") return "Auth expired — run Claude Code to refresh"
+                if (root.authState === "missing") return "No credentials found"
+                return "Auth: unknown"
+            }
+            color: {
+                if (root.authState === "expired") return root.warningAmber
+                if (root.authState === "missing") return root.criticalRed
+                return "#888888"
+            }
+            font.pixelSize: 11
         }
 
         PlasmaComponents.Label {

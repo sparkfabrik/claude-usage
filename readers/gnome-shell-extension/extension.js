@@ -91,6 +91,11 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._menuClaudeState = new PopupMenu.PopupMenuItem('Claude: --', { reactive: false });
         this.menu.addMenuItem(this._menuClaudeState);
 
+        // Auth state (hidden when valid)
+        this._menuAuthState = new PopupMenu.PopupMenuItem('', { reactive: false });
+        this._menuAuthState.visible = false;
+        this.menu.addMenuItem(this._menuAuthState);
+
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         const refreshItem = new PopupMenu.PopupMenuItem('Refresh Now');
@@ -179,6 +184,9 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._menuError.visible = true;
         this._menuClaudeState.label.set_text('Claude: unknown');
         this._menuClaudeState.label.set_style(`color: ${GREY};`);
+        this._menuAuthState.label.set_text('Auth: unknown');
+        this._menuAuthState.label.set_style(`color: ${GREY};`);
+        this._menuAuthState.visible = true;
     }
 
     _updateUI(data) {
@@ -237,6 +245,24 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         } else {
             this._menuClaudeState.label.set_text('Claude: not running');
             this._menuClaudeState.label.set_style(`color: ${ANTHROPIC_ORANGE};`);
+        }
+
+        // Auth state (hidden when valid)
+        const authState = data.auth || 'unknown';
+        if (authState === 'valid') {
+            this._menuAuthState.visible = false;
+        } else if (authState === 'expired') {
+            this._menuAuthState.label.set_text('Auth expired \u2014 run Claude Code to refresh');
+            this._menuAuthState.label.set_style(`color: ${ANTHROPIC_ORANGE};`);
+            this._menuAuthState.visible = true;
+        } else if (authState === 'missing') {
+            this._menuAuthState.label.set_text('No credentials found');
+            this._menuAuthState.label.set_style('color: #dc3232;');
+            this._menuAuthState.visible = true;
+        } else {
+            this._menuAuthState.label.set_text('Auth: unknown');
+            this._menuAuthState.label.set_style(`color: ${GREY};`);
+            this._menuAuthState.visible = true;
         }
     }
 
