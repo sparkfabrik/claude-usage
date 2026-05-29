@@ -268,6 +268,10 @@ case "$READER" in
       cp "$HOOKS_SRC/start.sh" "$HOOKS_DIR/start.sh"
       cp "$HOOKS_SRC/stop.sh" "$HOOKS_DIR/stop.sh"
       chmod +x "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh"
+    else
+      echo "WARNING: hooks source not found at $HOOKS_SRC"
+      echo "  Contents of $INSTALL_DIR/readers/:"
+      ls "$INSTALL_DIR/readers/" 2>&1 || true
     fi
 
     # Register hooks in ~/.claude/settings.json (if hook scripts exist)
