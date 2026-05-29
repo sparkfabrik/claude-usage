@@ -71,7 +71,7 @@ func Poll(accessToken, model string, timeout time.Duration, apiURL string) (*cac
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // read-only response body
 
 	if resp.StatusCode != 200 {
 		// Drain (bounded) and discard body — don't include in error to avoid leaking sensitive info.

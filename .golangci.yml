@@ -1,8 +1,28 @@
 version: "2"
 
+run:
+  timeout: 5m
+  exclude-dirs:
+    - readers
+
 linters:
   default: standard
-
-exclusions:
-  paths:
-    - readers
+  exclusions:
+    rules:
+      # Test files: relax errcheck
+      - path: _test\.go
+        linters:
+          - errcheck
+  settings:
+    errcheck:
+      exclude-functions:
+        # CLI output — write errors to stdout/stderr are unrecoverable
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # Read-only body/file drain and close
+        - io.Copy
+        - (*os.File).Close
+        - (*net/http.Response).Body.Close
+        # Best-effort cleanup
+        - os.Remove

@@ -190,13 +190,13 @@ func runStatus(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePa
 			resp := buildStatusResponse(nil, cfg, "no cached data available")
 			resp.ClaudeRunning = claudeRunning
 			resp.Auth = authState
-			outputJSON(w, resp)
+			_ = outputJSON(w, resp)
 			return
 		}
 		resp := buildStatusResponse(cached, cfg, "")
 		resp.ClaudeRunning = claudeRunning
 		resp.Auth = authState
-		outputJSON(w, resp)
+		_ = outputJSON(w, resp)
 		return
 	}
 
@@ -230,7 +230,7 @@ func runStatus(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePa
 	resp := buildStatusResponse(cached, cfg, pollErr)
 	resp.ClaudeRunning = claudeRunning
 	resp.Auth = authState
-	outputJSON(w, resp)
+	_ = outputJSON(w, resp)
 }
 
 // authStatus returns the auth state string for the status JSON.

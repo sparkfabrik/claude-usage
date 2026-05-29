@@ -7,7 +7,31 @@ EXT_UUID      := claude-usage@claude-code-usage
 EXT_DIR       := $(HOME)/.local/share/gnome-shell/extensions/$(EXT_UUID)
 INSTALL_DIR   := $(HOME)/.local/bin
 
-.PHONY: build-cli test-cli test-cli-short test-cli-cover install-cli install-gnome-extension install-kde install-waybar install-macos-tray uninstall-cli uninstall-gnome-extension reload-gnome-extension test-gnome-extension clean
+# Tool versions (pinned for reproducibility)
+# https://github.com/golangci/golangci-lint/releases
+GOLANGCI_LINT_VERSION := 2.12.2
+
+# Local tool binaries
+BIN_DIR       := $(CURDIR)/.bin
+GOLANGCI_LINT := $(BIN_DIR)/golangci-lint
+
+# Detect OS and architecture for tool downloads
+OS            := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH          := $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+
+.PHONY: build-cli test-cli test-cli-short test-cli-cover lint-cli install-cli install-gnome-extension install-kde install-waybar install-macos-tray uninstall-cli uninstall-gnome-extension reload-gnome-extension test-gnome-extension clean
+
+## Download golangci-lint if not present
+$(GOLANGCI_LINT):
+	@mkdir -p $(BIN_DIR)
+	@echo "Downloading golangci-lint v$(GOLANGCI_LINT_VERSION)..."
+	@curl -sSfL https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH).tar.gz | \
+		tar xz -C $(BIN_DIR) --strip-components=1 golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH)/golangci-lint
+	@echo "Installed golangci-lint v$(GOLANGCI_LINT_VERSION) to $(BIN_DIR)"
+
+## Run linter
+lint-cli: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) run ./...
 
 ## Build the Go binary
 build-cli:
@@ -67,6 +91,7 @@ uninstall-gnome-extension:
 clean:
 	rm -f $(BINARY_NAME)
 	rm -f claude-usage-tray
+	rm -rf $(BIN_DIR)
 
 ## Install KDE Plasma 6 plasmoid
 install-kde:
