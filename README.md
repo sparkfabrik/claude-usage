@@ -37,19 +37,24 @@ Claude Code has no public usage API. This tool polls the Anthropic API with a mi
 
 ## Requirements
 
-- Go 1.23+ (build only)
 - Claude Code with valid credentials at `~/.claude/.credentials.json`
-- GNOME Shell 45–50 (for the extension)
+
+**Per platform:**
+
+| Platform | Requirement |
+|----------|-------------|
+| GNOME | GNOME Shell 45–50 |
+| KDE | Plasma 6, `kpackagetool6` |
+| Waybar | Waybar, `jq` |
+| macOS | macOS 12+ |
 
 ## Installation
-
-### Quick install (recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | bash
 ```
 
-This auto-detects your OS, architecture, and desktop environment, then installs the CLI binary and the appropriate reader (GNOME extension, KDE plasmoid, Waybar module, or macOS tray).
+The installer auto-detects your OS, architecture, and desktop environment, then installs the CLI binary and the appropriate reader (GNOME extension, KDE plasmoid, Waybar module, or macOS tray).
 
 **Pin a specific version:**
 
@@ -57,33 +62,31 @@ This auto-detects your OS, architecture, and desktop environment, then installs 
 curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_VERSION=v1.0.0 bash
 ```
 
+**Private repo (requires GitHub token):**
+
+```bash
+curl -fsSL -H "Authorization: token $(gh auth token)" \
+  "https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh" \
+  | GITHUB_TOKEN=$(gh auth token) CLAUDE_USAGE_VERSION=v1.0.0 bash
+```
+
+**Upgrade:** Re-run the install command. The installer is idempotent — it skips if already up to date, upgrades if a new version is available.
+
 **Uninstall:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | bash -s -- --uninstall
 ```
 
-### Build from source
+### What the installer does
 
-```bash
-make install
-```
-
-This builds the binary, installs it to `~/.local/bin/claude-usage`, and copies the GNOME Shell extension.
-
-### Per-reader manual install
-
-**Binary only:** `make install-binary`
-
-**GNOME extension:** `make install-gnome-extension && gnome-extensions enable claude-usage@claude-code-usage`
-
-**KDE plasmoid:** `make install-kde` — then add "Claude Usage" widget to your panel.
-
-**Waybar module:** `make install-waybar` — then add to Waybar config. See [readers/waybar/README.md](readers/waybar/README.md).
-
-**macOS tray:** `make install-macos-tray` — requires macOS and CGo.
-
-> **Note:** On Wayland/GNOME, you must log out and back in for extension changes to take effect.
+1. Downloads the correct binary for your OS/arch from GitHub Releases
+2. Installs to `~/.local/share/claude-usage/` with symlinks in `~/.local/bin/`
+3. Detects your desktop environment:
+   - **GNOME** → symlinks the shell extension, prints enable command
+   - **KDE** → installs plasmoid via `kpackagetool6`, prints widget instructions
+   - **Waybar** → symlinks the module script, prints config snippet
+   - **macOS** → installs the tray binary, prints launch instructions
 
 ## Usage
 
@@ -108,13 +111,13 @@ claude-usage --period 7d
 # Poll and update cache silently (for scripting/cron)
 claude-usage --poll-only
 
-# JSON status output (used by GNOME extension and other consumers)
+# JSON status output (used by readers)
 claude-usage --status
 
 # Force a fresh API poll with status output
 claude-usage --status --force-poll
 
-# Cache-only status, no API call (returns stale data if cache exists)
+# Cache-only status, no API call
 claude-usage --status --no-poll
 
 # Use custom config file
@@ -133,16 +136,24 @@ C:42%  W:67%
 - **W** — Weekly period (7d window) utilization
 - Color-coded: green (<80%), orange (80–89%), red (>=90%)
 - Faded to 50% opacity when Claude Code is not running
-- Labels dimmed at 50% opacity when data is stale
-- Click for a dropdown with:
-  - Current/Weekly stats with reset times (same colors as panel)
-  - Stale data warning (orange) when applicable
-  - Claude Code process state: running (green) / not running (orange)
-  - "Refresh Now" button
-  - Disclaimer noting data is estimated
-- Calls `claude-usage --status` every 30s; all logic lives in the CLI
-- "Refresh Now" uses `--status --force-poll` to trigger an API call
-- Binary lookup: checks `$PATH` first, falls back to `~/.local/bin/claude-usage`
+- Click for dropdown with reset times, status details, and "Refresh Now" button
+
+### KDE Plasma 6 plasmoid
+
+Panel widget showing "C:X% W:Y%" with color-coded text. Click to expand details with reset times and error info. Dims at 50% opacity when data is stale, hides when Claude is not running.
+
+### Waybar module
+
+Displays a glyph + percentages: `◑ 5h:42% 7d:67%`
+
+- Glyphs: ◔ (<50%), ◑ (50-74%), ◕ (75-94%), ● (>=95%)
+- CSS classes: `normal`, `warning`, `critical`, `error`
+- Tooltip shows reset times
+- Hides when Claude is not running
+
+### macOS tray
+
+Menu bar item showing "C:X% W:Y%". Click for dropdown with reset times, "Refresh Now", and "Quit".
 
 ## Configuration
 
@@ -172,30 +183,14 @@ cache:
   # path: /custom/path/quota.json  # default: ~/.cache/claude-code-usage/quota.json
 ```
 
-## Testing the extension
-
-Requires `mutter-devkit` package (Arch: `mutter`):
-
-```bash
-make test-gnome-extension
-```
-
-This installs the extension and launches a nested GNOME Shell via `dbus-run-session gnome-shell --devkit --wayland`.
-
-## Uninstall
-
-```bash
-make uninstall
-```
-
 ## How polling works
 
 1. Sends a minimal API request: `max_tokens: 1`, `content: "."`, `temperature: 0` using `claude-haiku-4-5-20251001`
 2. Reads `x-ratelimit-*` response headers for utilization and reset times
 3. Writes results to a JSON cache at `~/.cache/claude-code-usage/quota.json`
-4. GNOME extension calls `claude-usage --status` every 30s, which returns JSON with raw data (percentages, reset times, colors, stale flag)
+4. Readers call `claude-usage --status` every 60s, which returns JSON (percentages, reset times, colors, stale flag)
 5. The CLI handles cache freshness internally — if cache is warm, it returns cached data without polling
-6. The extension is a pure renderer — it formats display text and handles the stale indicator locally
+6. Readers are pure renderers — they format display text and handle stale indicators locally
 
 ## Cost note
 

@@ -10,6 +10,7 @@
 # Environment variables:
 #   CLAUDE_USAGE_VERSION  — Version tag to install (default: latest release)
 #   INSTALL_DIR           — Installation directory (default: ~/.local/share/claude-usage)
+#   GITHUB_TOKEN          — GitHub token for private repo access (optional)
 #
 # Output protocol (for Ansible integration):
 #   CHANGED: <description>  — printed for each mutation
@@ -54,10 +55,22 @@ esac
 # Download helper (curl preferred, wget fallback)
 download() {
   local url="$1" dest="$2"
+  local auth_header=""
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    auth_header="Authorization: token $GITHUB_TOKEN"
+  fi
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$dest" "$url"
+    if [ -n "$auth_header" ]; then
+      curl -fsSL -H "$auth_header" -o "$dest" "$url"
+    else
+      curl -fsSL -o "$dest" "$url"
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$dest" "$url"
+    if [ -n "$auth_header" ]; then
+      wget -qO "$dest" --header="$auth_header" "$url"
+    else
+      wget -qO "$dest" "$url"
+    fi
   else
     die "Neither curl nor wget found. Install one and retry."
   fi
@@ -112,9 +125,11 @@ fi
 
 # --- Version resolution ---------------------------------------------------
 if [ -z "${CLAUDE_USAGE_VERSION:-}" ]; then
-  CLAUDE_USAGE_VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/') \
-    || die "Failed to fetch latest release. Set CLAUDE_USAGE_VERSION manually."
+  AUTH_ARGS=""
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    AUTH_ARGS="-H "Authorization: token $GITHUB_TOKEN""
+  fi
+  CLAUDE_USAGE_VERSION=$(eval curl -fsSL $AUTH_ARGS "https://api.github.com/repos/$REPO/releases/latest"     | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')     || die "Failed to fetch latest release. Set CLAUDE_USAGE_VERSION manually."
   [ -z "$CLAUDE_USAGE_VERSION" ] && die "Could not determine latest version. Set CLAUDE_USAGE_VERSION manually."
 fi
 
