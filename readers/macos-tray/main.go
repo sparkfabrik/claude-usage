@@ -61,9 +61,9 @@ func quotaGlyph(pct int) string {
 	}
 }
 
-// formatReset returns the reset duration or "—" if empty.
+// formatReset returns the reset duration or "—" if empty/unknown.
 func formatReset(reset string) string {
-	if reset == "" {
+	if reset == "" || reset == "?" {
 		return "—"
 	}
 	return reset
@@ -165,6 +165,7 @@ func updateDisplay() {
 		mDetail7d.SetTitle("7d: --")
 		mReset7d.SetTitle("  resets in —")
 		mError.Hide()
+		mAuth.Hide()
 		return
 	}
 
