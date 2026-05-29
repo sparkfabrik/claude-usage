@@ -88,6 +88,41 @@ PYEOF2
     changed "statusLine removed from $SETTINGS"
   fi
 
+  # Remove session hooks from settings.json
+  if [ -f "$SETTINGS" ] && grep -q "claude-usage-sessions" "$SETTINGS" 2>/dev/null; then
+    HOOKS_DIR="$INSTALL_DIR/hooks"
+    python3 - "$SETTINGS" "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh" <<'PYEOF_UNHOOK'
+import json, sys
+
+path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    cfg = json.load(f)
+
+hooks = cfg.get("hooks", {})
+for section, cmd in [("SessionStart", start_cmd), ("SessionEnd", stop_cmd)]:
+    entries = hooks.get(section, [])
+    cleaned = []
+    for e in entries:
+        if isinstance(e, dict):
+            inner = [h for h in e.get("hooks", [])
+                     if not (isinstance(h, dict) and h.get("command") == cmd)]
+            if inner:
+                cleaned.append({**e, "hooks": inner})
+        else:
+            cleaned.append(e)
+    hooks[section] = cleaned
+
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF_UNHOOK
+    changed "session hooks removed from $SETTINGS"
+  fi
+
+  # Kill tray if running
+  pkill -f "claude-usage-tray" 2>/dev/null || true
+  rm -rf /tmp/claude-usage-sessions 2>/dev/null || true
+
   # Remove GNOME extension symlink
   EXT_DIR="$HOME/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
   if [ -L "$EXT_DIR" ]; then
@@ -224,11 +259,60 @@ fi
 
 case "$READER" in
   macos)
-    # Tray already installed above
+    # Tray already installed above; register session hooks
+    HOOKS_DIR="$INSTALL_DIR/hooks"
+    mkdir -p "$HOOKS_DIR"
+    cp "$INSTALL_DIR/readers/hooks/start.sh" "$HOOKS_DIR/start.sh"
+    cp "$INSTALL_DIR/readers/hooks/stop.sh" "$HOOKS_DIR/stop.sh"
+    chmod +x "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh"
+
+    # Register hooks in ~/.claude/settings.json
+    START_CMD="$HOOKS_DIR/start.sh"
+    STOP_CMD="$HOOKS_DIR/stop.sh"
+    HOOKS_NEEDED=false
+
+    if [ ! -f "$SETTINGS" ]; then
+      mkdir -p "$(dirname "$SETTINGS")"
+      echo '{}' > "$SETTINGS"
+      HOOKS_NEEDED=true
+    elif ! grep -q "claude-usage-sessions" "$SETTINGS" 2>/dev/null; then
+      HOOKS_NEEDED=true
+    fi
+
+    if [ "$HOOKS_NEEDED" = true ]; then
+      python3 - "$SETTINGS" "$START_CMD" "$STOP_CMD" <<'PYEOF_HOOKS'
+import json, sys
+
+path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    cfg = json.load(f)
+
+hooks = cfg.setdefault("hooks", {})
+
+def add_hook(section, cmd):
+    entries = hooks.setdefault(section, [])
+    # Remove stale entries for this command, then re-add
+    for e in entries[:]:
+        if isinstance(e, dict):
+            e["hooks"] = [h for h in e.get("hooks", []) if not (isinstance(h, dict) and h.get("command") == cmd)]
+        if not e.get("hooks"):
+            entries.remove(e)
+    entries.append({"hooks": [{"type": "command", "command": cmd, "timeout": 5}]})
+
+add_hook("SessionStart", start_cmd)
+add_hook("SessionEnd", stop_cmd)
+
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF_HOOKS
+      changed "session hooks registered"
+    fi
+
     changed "macOS tray reader installed"
     echo ""
-    echo "macOS tray app installed! Run 'claude-usage-tray' to start."
-    echo "Add to Login Items for auto-start."
+    echo "macOS tray app installed with session hooks."
+    echo "The tray will auto-start/stop with Claude Code sessions."
     echo ""
     ;;
   gnome)
