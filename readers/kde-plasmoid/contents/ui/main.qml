@@ -91,9 +91,12 @@ PlasmoidItem {
 
     compactRepresentation: MouseArea {
         id: compactMouse
-        Layout.preferredWidth: root.hasData ? compactGrid.implicitWidth : 0
-        Layout.preferredHeight: root.hasData ? compactGrid.implicitHeight : 0
-        visible: root.hasData && root.claudeRunning
+        readonly property bool shouldShow: root.hasData && root.claudeRunning
+        Layout.preferredWidth: shouldShow ? compactGrid.implicitWidth : 0
+        Layout.preferredHeight: shouldShow ? compactGrid.implicitHeight : 0
+        Layout.maximumWidth: shouldShow ? -1 : 0
+        Layout.maximumHeight: shouldShow ? -1 : 0
+        visible: shouldShow
         onClicked: root.expanded = !root.expanded
 
         GridLayout {
