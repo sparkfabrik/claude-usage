@@ -145,7 +145,10 @@ void setTrayTitle(const char *title, double r, double g, double b) {
             initWithString:str attributes:attrs];
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            [[statusItem button] setAttributedTitle:attrStr];
+            NSStatusBarButton *btn = [statusItem button];
+            if (btn) {
+                [btn setAttributedTitle:attrStr];
+            }
         });
     }
 }

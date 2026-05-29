@@ -98,20 +98,6 @@ func formatReset(reset string) string {
 	return reset
 }
 
-// parseHexColor parses a "#RRGGBB" hex string into a color.RGBA.
-// Returns Claude orange if parsing fails.
-func parseHexColor(hex string) color.RGBA {
-	if len(hex) != 7 || hex[0] != '#' {
-		return colorClaudeOrange
-	}
-	var r, g, b uint8
-	_, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
-	if err != nil {
-		return colorClaudeOrange
-	}
-	return color.RGBA{R: r, G: g, B: b, A: 0xFF}
-}
-
 // setTitle sets the menu bar title with the given color.
 func setTitle(text string, clr color.RGBA) {
 	nativeSetTitle(text, float64(clr.R)/255.0, float64(clr.G)/255.0, float64(clr.B)/255.0)
@@ -179,9 +165,7 @@ func updateDisplay() {
 		title += " ?"
 	}
 
-	// Color from c_color field
-	clr := parseHexColor(status.CColor)
-	setTitle(title, clr)
+	setTitle(title, colorClaudeOrange)
 
 	// Status line
 	if status.Stale {
