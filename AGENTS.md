@@ -104,7 +104,7 @@ openspec/                 Change management specs
 - **Bash** (Waybar/statusline): 2-space indent.
 - **YAML/JSON**: 2-space indent.
 - `.editorconfig` enforces these settings.
-- No golangci-lint configured yet — consider adding `.golangci.yml`.
+- Linting: `make lint-cli` runs golangci-lint (auto-downloaded to `.bin/`, pinned version). Config in `.golangci.yml` (v2 format).
 
 ## Git Workflow
 
@@ -210,6 +210,26 @@ The project uses GitHub Actions with GoReleaser for releases.
 | GNOME extension | zip        | extension.js + metadata.json + sparkle.svg |
 | Readers bundle  | tar.gz     | All reader source files                    |
 
+### Releasing
+
+Releases are fully automated via GoReleaser. **Never create GitHub releases manually** (no `gh release create`, no API calls to create releases). GoReleaser owns the entire release lifecycle: building binaries, creating the GitHub release, generating the changelog, and uploading artifacts.
+
+To release a new version:
+
+1. Ensure `main` is up to date and CI is green.
+2. Tag the commit: `git tag v<major>.<minor>.<patch>`.
+3. Push the tag: `git push origin v<major>.<minor>.<patch>`.
+4. The `release.yml` workflow triggers automatically and GoReleaser handles everything.
+
+Follow [Semantic Versioning](https://semver.org/):
+- `patch`: bug fixes, dependency updates, internal refactors.
+- `minor`: new features, new CLI flags, new reader support.
+- `major`: breaking changes to `--status` JSON schema or config format.
+
+Pre-release tags (e.g., `v1.0.0-rc.1`) are detected automatically (`prerelease: auto` in `.goreleaser.yaml`).
+
+**Never delete or overwrite an existing tag.** If a release is broken, fix forward with a new patch version.
+
 ## Command Safety
 
 ### Safe (run autonomously)
@@ -218,6 +238,7 @@ The project uses GitHub Actions with GoReleaser for releases.
 - `make test-cli` — run all tests
 - `make test-cli-short` — run unit tests only
 - `make test-cli-cover` — show test coverage
+- `make lint-cli` — run linter (auto-downloads if needed)
 - `go vet ./...` — static analysis
 - `go build ./...` — verify compilation
 - `go mod verify` — verify dependency checksums
