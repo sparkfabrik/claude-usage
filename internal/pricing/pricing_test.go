@@ -24,16 +24,51 @@ func TestGet_PrefixFallback(t *testing.T) {
 }
 
 func TestGet_OpusPrefix(t *testing.T) {
+	// claude-opus-4-20260101 matches "claude-opus-4" prefix → deprecated opus pricing
 	p := Get("claude-opus-4-20260101", nil)
 	if p.Input != 15.0 {
-		t.Errorf("Input = %f, want 15.0 (opus)", p.Input)
+		t.Errorf("Input = %f, want 15.0 (deprecated opus)", p.Input)
+	}
+}
+
+func TestGet_Opus47(t *testing.T) {
+	p := Get("claude-opus-4-7", nil)
+	if p.Input != 5.0 {
+		t.Errorf("Input = %f, want 5.0 (opus 4.7)", p.Input)
+	}
+	if p.Output != 25.0 {
+		t.Errorf("Output = %f, want 25.0 (opus 4.7)", p.Output)
+	}
+}
+
+func TestGet_Opus47DateVariant(t *testing.T) {
+	p := Get("claude-opus-4-7-20260301", nil)
+	if p.Input != 5.0 {
+		t.Errorf("Input = %f, want 5.0 (opus 4.7 prefix)", p.Input)
+	}
+}
+
+func TestGet_Opus48(t *testing.T) {
+	p := Get("claude-opus-4-8", nil)
+	if p.Input != 5.0 {
+		t.Errorf("Input = %f, want 5.0 (opus 4.8)", p.Input)
+	}
+}
+
+func TestGet_Opus41(t *testing.T) {
+	p := Get("claude-opus-4-1", nil)
+	if p.Input != 15.0 {
+		t.Errorf("Input = %f, want 15.0 (opus 4.1)", p.Input)
 	}
 }
 
 func TestGet_HaikuPrefix(t *testing.T) {
 	p := Get("claude-haiku-4-5-20260101", nil)
-	if p.Input != 0.80 {
-		t.Errorf("Input = %f, want 0.80 (haiku)", p.Input)
+	if p.Input != 1.0 {
+		t.Errorf("Input = %f, want 1.0 (haiku 4.5)", p.Input)
+	}
+	if p.Output != 5.0 {
+		t.Errorf("Output = %f, want 5.0 (haiku 4.5)", p.Output)
 	}
 }
 
@@ -109,13 +144,23 @@ func TestCalculate_WithOverrides(t *testing.T) {
 
 func TestDefaultPricing_AllModelsPresent(t *testing.T) {
 	models := []string{
-		"claude-opus-4",
+		"claude-opus-4-8",
 		"claude-opus-4-7",
-		"claude-sonnet-4",
+		"claude-opus-4-6",
+		"claude-opus-4-5",
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-1",
+		"claude-opus-4-1-20250805",
+		"claude-opus-4",
+		"claude-opus-4-20250514",
+		"claude-sonnet-4-6",
 		"claude-sonnet-4-5",
-		"claude-sonnet-4-5-20250514",
+		"claude-sonnet-4-5-20250929",
+		"claude-sonnet-4",
+		"claude-sonnet-4-20250514",
 		"claude-haiku-4-5",
 		"claude-haiku-4-5-20251001",
+		"claude-3-5-haiku-20241022",
 		"claude-3-5-sonnet-20241022",
 		"claude-3-5-sonnet-20240620",
 	}
