@@ -222,13 +222,15 @@ func TestRenderModelTable_WithData(t *testing.T) {
 	now := time.Now()
 	summaries := []*analyzer.Summary{
 		{
-			PeriodLabel:      "claude-sonnet-4",
-			TotalInputTokens: 5000,
-			TotalOutputTokens: 2000,
-			MessageCount:     3,
-			TotalCostUSD:     0.10,
-			StartTime:        &now,
-			EndTime:          &now,
+			PeriodLabel:           "claude-sonnet-4",
+			TotalInputTokens:     5000,
+			TotalOutputTokens:    2000,
+			TotalCacheWriteTokens: 3000,
+			TotalCacheReadTokens:  1000,
+			MessageCount:         3,
+			TotalCostUSD:         0.10,
+			StartTime:            &now,
+			EndTime:              &now,
 		},
 	}
 
@@ -238,6 +240,62 @@ func TestRenderModelTable_WithData(t *testing.T) {
 	}
 	if !strings.Contains(out, "claude-sonnet-4") {
 		t.Errorf("expected model name in output")
+	}
+	if !strings.Contains(out, "Cache W/R") {
+		t.Errorf("expected 'Cache W/R' column header")
+	}
+	if !strings.Contains(out, "$0.10") {
+		t.Errorf("expected cost '$0.10'")
+	}
+}
+
+func TestRenderModelTable_NoCost(t *testing.T) {
+	now := time.Now()
+	summaries := []*analyzer.Summary{
+		{
+			PeriodLabel:      "claude-opus-4-7",
+			TotalInputTokens: 1000,
+			MessageCount:     1,
+			StartTime:        &now,
+			EndTime:          &now,
+		},
+	}
+
+	out := RenderModelTable(summaries, false)
+	if strings.Contains(out, "Cost") {
+		t.Errorf("should not contain Cost header when showCost=false")
+	}
+	if !strings.Contains(out, "Cache W/R") {
+		t.Errorf("expected 'Cache W/R' column even without cost")
+	}
+}
+
+func TestRenderModelTable_ColumnsMatchPeriodTable(t *testing.T) {
+	// Both tables should have the same column structure (except first col name).
+	now := time.Now()
+	summary := &analyzer.Summary{
+		PeriodLabel:           "test",
+		TotalInputTokens:     10000,
+		TotalOutputTokens:    5000,
+		TotalCacheWriteTokens: 2000,
+		TotalCacheReadTokens:  1000,
+		MessageCount:         5,
+		TotalCostUSD:         1.23,
+		StartTime:            &now,
+		EndTime:              &now,
+	}
+
+	periodOut := RenderUsageTable([]*analyzer.Summary{summary}, true)
+	modelOut := RenderModelTable([]*analyzer.Summary{summary}, true)
+
+	// Both should have these columns
+	for _, col := range []string{"Msgs", "Input", "Output", "Cache W/R", "Total", "Cost"} {
+		if !strings.Contains(periodOut, col) {
+			t.Errorf("period table missing column %q", col)
+		}
+		if !strings.Contains(modelOut, col) {
+			t.Errorf("model table missing column %q", col)
+		}
 	}
 }
 
