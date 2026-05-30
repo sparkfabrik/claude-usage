@@ -31,11 +31,11 @@ The project should transition from Makefile to a Justfile.
 
 ### File Paths
 
-| Path | Purpose | Notes |
-|------|---------|-------|
-| `~/.config/claude-code-usage/config.yaml` | Config | YAML, `gopkg.in/yaml.v3` |
-| `~/.cache/claude-code-usage/quota.json` | Cache | XDG, configurable via `cache.path`, dir `0700` |
-| `~/.claude/.credentials.json` | Credentials | Read-only. **Never write to `~/.claude/`.** |
+| Path                                      | Purpose     | Notes                                          |
+| ----------------------------------------- | ----------- | ---------------------------------------------- |
+| `~/.config/claude-code-usage/config.yaml` | Config      | YAML, `gopkg.in/yaml.v3`                       |
+| `~/.cache/claude-code-usage/quota.json`   | Cache       | XDG, configurable via `cache.path`, dir `0700` |
+| `~/.claude/.credentials.json`             | Credentials | Read-only. **Never write to `~/.claude/`.**    |
 
 ### `--status` JSON API
 
@@ -43,9 +43,16 @@ The project should transition from Makefile to a Justfile.
 
 ```json
 {
-  "c_pct": 42, "c_reset": "3h12m", "c_color": "#32c850",
-  "w_pct": 67, "w_reset": "5d02h", "w_color": "#e6961e",
-  "stale": false, "claude_running": true, "auth": "valid", "error": ""
+  "c_pct": 42,
+  "c_reset": "3h12m",
+  "c_color": "#32c850",
+  "w_pct": 67,
+  "w_reset": "5d02h",
+  "w_color": "#e6961e",
+  "stale": false,
+  "claude_running": true,
+  "auth": "valid",
+  "error": ""
 }
 ```
 
@@ -145,6 +152,7 @@ GitHub Actions with GoReleaser. CI runs on PRs to main (ubuntu + macos matrix).
 Releases are fully automated via GoReleaser. **Never create GitHub releases manually** (no `gh release create`, no API calls). GoReleaser owns the entire lifecycle: building, creating the release, changelog, and uploading artifacts.
 
 To release:
+
 1. Ensure `main` is up to date and CI is green.
 2. `git tag v<major>.<minor>.<patch>` then `git push origin v<major>.<minor>.<patch>`.
 3. `release.yml` triggers automatically. Runs on `macos-latest` (needed for macOS tray CGO).
@@ -155,13 +163,13 @@ Semver: `patch` (fixes/refactors), `minor` (features/flags/readers), `major` (br
 
 ### Key artifacts
 
-| Artifact | Format | Contents |
-|----------|--------|----------|
-| CLI archive | tar.gz | Binary + README + LICENSE + config |
-| CLI binary | raw | Direct download for `install.sh` |
-| macOS tray | raw binary | Tray app (darwin only) |
-| GNOME extension | zip | extension.js + metadata.json + sparkle.svg |
-| Readers bundle | tar.gz | All reader source files |
+| Artifact        | Format     | Contents                                   |
+| --------------- | ---------- | ------------------------------------------ |
+| CLI archive     | tar.gz     | Binary + README + LICENSE + config         |
+| CLI binary      | raw        | Direct download for `install.sh`           |
+| macOS tray      | raw binary | Tray app (darwin only)                     |
+| GNOME extension | zip        | extension.js + metadata.json + sparkle.svg |
+| Readers bundle  | tar.gz     | All reader source files                    |
 
 ## Command Safety
 
