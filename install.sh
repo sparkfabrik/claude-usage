@@ -88,6 +88,51 @@ PYEOF2
     changed "statusLine removed from $SETTINGS"
   fi
 
+  # Remove session hooks from settings.json
+  HOOKS_DIR="$INSTALL_DIR/hooks"
+  if [ -f "$SETTINGS" ] && grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
+    if python3 - "$SETTINGS" "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh" <<'PYEOF_UNHOOK'
+import json, sys
+
+path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    cfg = json.load(f)
+
+if not isinstance(cfg, dict):
+    sys.exit(0)
+hooks = cfg.get("hooks")
+if not isinstance(hooks, dict):
+    sys.exit(0)
+for section, cmd in [("SessionStart", start_cmd), ("SessionEnd", stop_cmd)]:
+    entries = hooks.get(section)
+    if not isinstance(entries, list):
+        continue
+    cleaned = []
+    for e in entries:
+        if isinstance(e, dict):
+            inner = [h for h in e.get("hooks", [])
+                     if not (isinstance(h, dict) and h.get("command") == cmd)]
+            if inner:
+                cleaned.append({**e, "hooks": inner})
+        else:
+            cleaned.append(e)
+    hooks[section] = cleaned
+
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF_UNHOOK
+    then
+      changed "session hooks removed from $SETTINGS"
+    else
+      echo "WARNING: could not update $SETTINGS (invalid JSON?); skipping hook removal"
+    fi
+  fi
+
+  # Kill tray if running
+  pkill -x "claude-usage-tray" 2>/dev/null || true
+  rm -rf /tmp/claude-usage-sessions 2>/dev/null || true
+
   # Remove GNOME extension symlink
   EXT_DIR="$HOME/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
   if [ -L "$EXT_DIR" ]; then
@@ -143,10 +188,15 @@ if [ -f "$INSTALL_DIR/.version" ]; then
 fi
 
 # --- Download binaries ----------------------------------------------------
-if [ "$CURRENT_VERSION" = "$CLAUDE_USAGE_VERSION" ]; then
+# Skip the download only when the recorded version matches AND all downloaded
+# artifacts are actually present. Keying on .version alone would treat a
+# hand-deleted binary or readers dir as up-to-date and never repair it.
+SKIP_DOWNLOAD=false
+if [ "$CURRENT_VERSION" = "$CLAUDE_USAGE_VERSION" ] \
+   && [ -x "$INSTALL_DIR/bin/claude-usage" ] \
+   && { [ "$OS" != "darwin" ] || [ -x "$INSTALL_DIR/bin/claude-usage-tray" ]; } \
+   && [ -d "$INSTALL_DIR/readers" ]; then
   SKIP_DOWNLOAD=true
-else
-  SKIP_DOWNLOAD=false
 fi
 
 if [ "$SKIP_DOWNLOAD" = false ]; then
@@ -187,14 +237,6 @@ mkdir -p "$INSTALL_DIR/readers"
 tar xzf "$TMP_DIR/readers.tar.gz" -C "$INSTALL_DIR/readers"
 chmod +x "$INSTALL_DIR/readers/waybar/claude-usage-waybar.sh" 2>/dev/null || true
 
-# --- Create symlinks ------------------------------------------------------
-mkdir -p "$BIN_DIR"
-ln -sf "$INSTALL_DIR/bin/claude-usage" "$BIN_DIR/claude-usage"
-
-if [ "$OS" = "darwin" ]; then
-  ln -sf "$INSTALL_DIR/bin/claude-usage-tray" "$BIN_DIR/claude-usage-tray"
-fi
-
 # PATH warning
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
@@ -209,8 +251,19 @@ esac
 
 fi
 
+# --- Create symlinks ------------------------------------------------------
+# Always (re)create core symlinks, even on the skip-download fast path, so a
+# hand-deleted symlink is repaired on rerun. ln -sf is idempotent.
+mkdir -p "$BIN_DIR"
+ln -sf "$INSTALL_DIR/bin/claude-usage" "$BIN_DIR/claude-usage"
+
+if [ "$OS" = "darwin" ]; then
+  ln -sf "$INSTALL_DIR/bin/claude-usage-tray" "$BIN_DIR/claude-usage-tray"
+fi
+
 # --- Reader detection and install -----------------------------------------
 READER="none"
+SETTINGS="$HOME/.claude/settings.json"
 
 if [ "$OS" = "darwin" ]; then
   READER="macos"
@@ -224,11 +277,85 @@ fi
 
 case "$READER" in
   macos)
-    # Tray already installed above
+    # Tray already installed above; register session hooks
+    HOOKS_DIR="$INSTALL_DIR/hooks"
+    HOOKS_SRC="$INSTALL_DIR/readers/hooks"
+    mkdir -p "$HOOKS_DIR"
+    if [ -d "$HOOKS_SRC" ]; then
+      cp "$HOOKS_SRC/start.sh" "$HOOKS_DIR/start.sh"
+      cp "$HOOKS_SRC/stop.sh" "$HOOKS_DIR/stop.sh"
+      chmod +x "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh"
+    else
+      echo "WARNING: hooks source not found at $HOOKS_SRC"
+      echo "  Contents of $INSTALL_DIR/readers/:"
+      ls "$INSTALL_DIR/readers/" 2>&1 || true
+    fi
+
+    # Register hooks in ~/.claude/settings.json (if hook scripts exist)
+    START_CMD="$HOOKS_DIR/start.sh"
+    STOP_CMD="$HOOKS_DIR/stop.sh"
+
+    if [ -x "$START_CMD" ] && [ -x "$STOP_CMD" ]; then
+      HOOKS_NEEDED=false
+
+      if [ ! -f "$SETTINGS" ]; then
+        mkdir -p "$(dirname "$SETTINGS")"
+        echo '{}' > "$SETTINGS"
+        HOOKS_NEEDED=true
+      elif ! grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
+        HOOKS_NEEDED=true
+      fi
+
+      if [ "$HOOKS_NEEDED" = true ]; then
+        if python3 - "$SETTINGS" "$START_CMD" "$STOP_CMD" <<'PYEOF_HOOKS'
+import json, sys
+
+path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    cfg = json.load(f)
+
+if not isinstance(cfg, dict):
+    sys.stderr.write("settings root is not a JSON object\n")
+    sys.exit(1)
+
+hooks = cfg.get("hooks")
+if not isinstance(hooks, dict):
+    hooks = {}
+    cfg["hooks"] = hooks
+
+def add_hook(section, cmd):
+    entries = hooks.get(section)
+    if not isinstance(entries, list):
+        entries = []
+        hooks[section] = entries
+    # Remove stale entries for this command, then re-add
+    for e in entries[:]:
+        if not isinstance(e, dict):
+            continue
+        e["hooks"] = [h for h in e.get("hooks", []) if not (isinstance(h, dict) and h.get("command") == cmd)]
+        if not e.get("hooks"):
+            entries.remove(e)
+    entries.append({"hooks": [{"type": "command", "command": cmd, "timeout": 5}]})
+
+add_hook("SessionStart", start_cmd)
+add_hook("SessionEnd", stop_cmd)
+
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF_HOOKS
+        then
+          changed "session hooks registered"
+        else
+          echo "WARNING: could not register session hooks in $SETTINGS (invalid JSON?); tray auto-start/stop disabled"
+        fi
+      fi
+    fi
+
     changed "macOS tray reader installed"
     echo ""
-    echo "macOS tray app installed! Run 'claude-usage-tray' to start."
-    echo "Add to Login Items for auto-start."
+    echo "macOS tray app installed with session hooks."
+    echo "The tray will auto-start/stop with Claude Code sessions."
     echo ""
     ;;
   gnome)
