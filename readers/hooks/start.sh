@@ -2,11 +2,10 @@
 # SessionStart hook — launch claude-usage-tray if not already running (macOS only)
 [ "$(uname -s)" != "Darwin" ] && exit 0
 
-# Read stdin with timeout to avoid blocking if Claude Code doesn't close stdin
+# Read entire stdin (until EOF) with timeout to avoid blocking if Claude Code
+# doesn't close stdin. -d '' reads past newlines so multiline JSON is captured.
 STDIN_DATA=""
-if read -t 2 -r STDIN_DATA; then
-  : # got data
-fi
+IFS= read -t 2 -r -d '' STDIN_DATA || true
 
 SESSION_ID=$(echo "$STDIN_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
 

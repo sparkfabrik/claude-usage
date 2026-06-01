@@ -91,16 +91,22 @@ PYEOF2
   # Remove session hooks from settings.json
   HOOKS_DIR="$INSTALL_DIR/hooks"
   if [ -f "$SETTINGS" ] && grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
-    python3 - "$SETTINGS" "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh" <<'PYEOF_UNHOOK'
+    if python3 - "$SETTINGS" "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh" <<'PYEOF_UNHOOK'
 import json, sys
 
 path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path) as f:
     cfg = json.load(f)
 
-hooks = cfg.get("hooks", {})
+if not isinstance(cfg, dict):
+    sys.exit(0)
+hooks = cfg.get("hooks")
+if not isinstance(hooks, dict):
+    sys.exit(0)
 for section, cmd in [("SessionStart", start_cmd), ("SessionEnd", stop_cmd)]:
-    entries = hooks.get(section, [])
+    entries = hooks.get(section)
+    if not isinstance(entries, list):
+        continue
     cleaned = []
     for e in entries:
         if isinstance(e, dict):
@@ -116,7 +122,11 @@ with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 PYEOF_UNHOOK
-    changed "session hooks removed from $SETTINGS"
+    then
+      changed "session hooks removed from $SETTINGS"
+    else
+      echo "WARNING: could not update $SETTINGS (invalid JSON?); skipping hook removal"
+    fi
   fi
 
   # Kill tray if running
@@ -297,17 +307,27 @@ case "$READER" in
       fi
 
       if [ "$HOOKS_NEEDED" = true ]; then
-        python3 - "$SETTINGS" "$START_CMD" "$STOP_CMD" <<'PYEOF_HOOKS'
+        if python3 - "$SETTINGS" "$START_CMD" "$STOP_CMD" <<'PYEOF_HOOKS'
 import json, sys
 
 path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path) as f:
     cfg = json.load(f)
 
-hooks = cfg.setdefault("hooks", {})
+if not isinstance(cfg, dict):
+    sys.stderr.write("settings root is not a JSON object\n")
+    sys.exit(1)
+
+hooks = cfg.get("hooks")
+if not isinstance(hooks, dict):
+    hooks = {}
+    cfg["hooks"] = hooks
 
 def add_hook(section, cmd):
-    entries = hooks.setdefault(section, [])
+    entries = hooks.get(section)
+    if not isinstance(entries, list):
+        entries = []
+        hooks[section] = entries
     # Remove stale entries for this command, then re-add
     for e in entries[:]:
         if not isinstance(e, dict):
@@ -324,7 +344,11 @@ with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 PYEOF_HOOKS
-        changed "session hooks registered"
+        then
+          changed "session hooks registered"
+        else
+          echo "WARNING: could not register session hooks in $SETTINGS (invalid JSON?); tray auto-start/stop disabled"
+        fi
       fi
     fi
 
