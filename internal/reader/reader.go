@@ -174,7 +174,7 @@ func parseTimestamp(raw json.RawMessage) time.Time {
 		return time.Time{}
 	}
 
-	// Try string (ISO 8601)
+	// Try string (ISO 8601, then numeric string for epoch millis)
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		for _, layout := range []string{
@@ -186,6 +186,10 @@ func parseTimestamp(raw json.RawMessage) time.Time {
 				return t.UTC()
 			}
 		}
+		// String didn't match any ISO layout — try as numeric epoch millis
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return epochMillisToTime(f)
+		}
 		return time.Time{}
 	}
 
@@ -193,12 +197,6 @@ func parseTimestamp(raw json.RawMessage) time.Time {
 	var n float64
 	if err := json.Unmarshal(raw, &n); err == nil {
 		return epochMillisToTime(n)
-	}
-
-	// Try numeric string
-	str := strings.Trim(string(raw), "\"")
-	if f, err := strconv.ParseFloat(str, 64); err == nil {
-		return epochMillisToTime(f)
 	}
 
 	return time.Time{}

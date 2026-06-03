@@ -16,6 +16,11 @@ CLI dashboard + multi-platform desktop readers for monitoring Claude Code usage 
    │  GNOME  │  │   KDE   │  │ Waybar  │  │  macOS    │
    │Extension│  │Plasmoid │  │ Module  │  │  Tray     │
    └─────────┘  └─────────┘  └─────────┘  └───────────┘
+                                    │
+                             ┌──────┴──────┐
+                             │ Statusline  │
+                             │  (Bash)     │
+                             └─────────────┘
 ```
 
 All readers call `claude-usage --status` every 60 seconds and render the JSON response. No reader contains polling or caching logic.
@@ -31,6 +36,7 @@ Claude Code has no public usage API. This tool polls the Anthropic API with a mi
 - **KDE Plasma 6 plasmoid** — panel widget with utilization display and click-to-expand details
 - **Waybar module** — custom module with glyph indicators and CSS class theming
 - **macOS tray app** — menu bar item with dropdown details and color-coded status
+- **Terminal statusline** — lightweight Bash script for tmux/shell prompt integration
 - **Minimal polling cost** — ~$0.017/day, ~$0.52/month with 60s interval
 - **Single static binary** — no runtime dependencies, no Python, no venv
 - **Configurable** — YAML config for polling interval, display periods, cost visibility, color thresholds, model pricing overrides
@@ -41,12 +47,12 @@ Claude Code has no public usage API. This tool polls the Anthropic API with a mi
 
 **Per platform:**
 
-| Platform | Requirement |
-|----------|-------------|
-| GNOME | GNOME Shell 45–50 |
-| KDE | Plasma 6, `kpackagetool6` |
-| Waybar | Waybar, `jq` |
-| macOS | macOS 12+ |
+| Platform | Requirement               |
+| -------- | ------------------------- |
+| GNOME    | GNOME Shell 45–50         |
+| KDE      | Plasma 6, `kpackagetool6` |
+| Waybar   | Waybar, `jq`              |
+| macOS    | macOS 12+                 |
 
 ## Installation
 
@@ -61,7 +67,6 @@ The installer auto-detects your OS, architecture, and desktop environment, then 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_VERSION=v1.0.0 bash
 ```
-
 
 **Upgrade:** Re-run the install command. The installer is idempotent — it skips if already up to date, upgrades if a new version is available.
 
@@ -113,6 +118,9 @@ claude-usage --status --force-poll
 # Cache-only status, no API call
 claude-usage --status --no-poll
 # The --status JSON includes an "auth" field: "valid" | "expired" | "missing" | "unknown"
+
+# Show version info
+claude-usage --version
 
 # Use custom config file
 claude-usage --config /path/to/config.yaml

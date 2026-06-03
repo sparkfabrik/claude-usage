@@ -219,24 +219,28 @@ func RenderModelTable(summaries []*analyzer.Summary, showCost bool) string {
 		return ""
 	}
 
-	headers := []string{"Model", "Msgs", "Input", "Output", "Total"}
+	headers := []string{"Model", "Msgs", "Input", "Output", "Cache W/R", "Total"}
 	if showCost {
 		headers = append(headers, "Cost")
 	}
 
 	const (
 		colModelName  = 0
-		colModelTotal = 4
-		colModelCost  = 5
+		colModelTotal = 5
+		colModelCost  = 6
 	)
 
 	rows := make([][]string, 0, len(summaries))
 	for _, s := range summaries {
+		cacheStr := fmt.Sprintf("%s/%s",
+			reader.FormatTokens(s.TotalCacheWriteTokens),
+			reader.FormatTokens(s.TotalCacheReadTokens))
 		row := []string{
 			s.PeriodLabel,
 			fmt.Sprintf("%d", s.MessageCount),
 			reader.FormatTokens(s.TotalInputTokens),
 			reader.FormatTokens(s.TotalOutputTokens),
+			cacheStr,
 			reader.FormatTokens(s.TotalTokens()),
 		}
 		if showCost {

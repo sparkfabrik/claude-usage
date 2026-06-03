@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
+	"runtime/debug"
 	"time"
 
 	flag "github.com/spf13/pflag"
@@ -19,6 +21,48 @@ import (
 	"github.com/Monska85/claude-usage/internal/process"
 	"github.com/Monska85/claude-usage/internal/reader"
 )
+
+// Build-time variables injected via ldflags.
+var (
+	version = ""
+	commit  = ""
+	date    = ""
+	builtBy = ""
+)
+
+// initVersion populates version info from Go's embedded build metadata
+// when ldflags are not set (e.g. plain go install).
+func initVersion() {
+	if version != "" {
+		return
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		version = "dev"
+		return
+	}
+	applyBuildInfo(info)
+}
+
+// applyBuildInfo extracts version, commit, and date from debug.BuildInfo.
+func applyBuildInfo(info *debug.BuildInfo) {
+	version = info.Main.Version
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			commit = s.Value
+		case "vcs.time":
+			date = s.Value
+		case "vcs.modified":
+			if s.Value == "true" && commit != "" {
+				commit += "-dirty"
+			}
+		}
+	}
+	if version == "" || version == "(devel)" {
+		version = "dev"
+	}
+}
 
 // defaultPollTimeout is the HTTP timeout for API polling requests.
 const defaultPollTimeout = 15 * time.Second
@@ -38,6 +82,7 @@ type StatusResponse struct {
 }
 
 func main() {
+	showVersion := flag.BoolP("version", "V", false, "Print version information and exit")
 	noPoll := flag.Bool("no-poll", false, "Skip API polling, use cached data only")
 	forcePoll := flag.Bool("force-poll", false, "Force API poll even if cache is fresh")
 	noCost := flag.Bool("no-cost", false, "Hide cost estimates")
@@ -46,6 +91,21 @@ func main() {
 	pollOnly := flag.Bool("poll-only", false, "Poll API and update cache, no output (for scripting)")
 	status := flag.Bool("status", false, "Output JSON status for GNOME extension or other consumers")
 	flag.Parse()
+
+	if *showVersion {
+		initVersion()
+		fmt.Printf("claude-usage %s\n", version)
+		if commit != "" {
+			fmt.Printf("  commit:  %s\n", commit)
+		}
+		if date != "" {
+			fmt.Printf("  built:   %s\n", date)
+		}
+		if builtBy != "" {
+			fmt.Printf("  builder: %s\n", builtBy)
+		}
+		return
+	}
 
 	cfg := config.Load(*configPath)
 
@@ -58,7 +118,7 @@ func main() {
 	// --status --no-poll needs no credentials at all (pure cache read).
 	// Defer auth.Load() so the fast path avoids disk I/O for credentials.
 	if *status && *noPoll {
-		runStatus(nil, cfg, cachePath, true, false)
+		runStatus(os.Stdout, nil, cfg, cachePath, true, false, "")
 		return
 	}
 
@@ -69,16 +129,22 @@ func main() {
 	}
 
 	if *pollOnly {
-		runPollOnly(creds, cfg, cachePath)
+		if err := runPollOnly(creds, cfg, cachePath, ""); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
 	if *status {
-		runStatus(creds, cfg, cachePath, false, *forcePoll)
+		runStatus(os.Stdout, creds, cfg, cachePath, false, *forcePoll, "")
 		return
 	}
 
-	runDashboard(creds, cfg, cachePath, *noPoll, *forcePoll, *noCost, *period)
+	if err := runDashboard(os.Stdout, creds, cfg, cachePath, "", *noPoll, *forcePoll, *noCost, *period, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // resolveCachePath returns the cache file path from config override or XDG default.
@@ -90,28 +156,25 @@ func resolveCachePath(cfg *config.Config) (string, error) {
 }
 
 // runPollOnly polls the API and writes cache, with no output.
-func runPollOnly(creds *auth.Credentials, cfg *config.Config, cachePath string) {
+func runPollOnly(creds *auth.Credentials, cfg *config.Config, cachePath, apiURL string) error {
 	if creds == nil {
-		fmt.Fprintf(os.Stderr, "Error: no credentials found\n")
-		os.Exit(1)
+		return fmt.Errorf("no credentials found")
 	}
 	if creds.IsExpired() {
-		fmt.Fprintf(os.Stderr, "Error: credentials expired\n")
-		os.Exit(1)
+		return fmt.Errorf("credentials expired")
 	}
-	q, err := poller.Poll(creds.AccessToken, cfg.API.Model, defaultPollTimeout)
+	q, err := poller.Poll(creds.AccessToken, cfg.API.Model, defaultPollTimeout, apiURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Poll error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("poll: %w", err)
 	}
 	if err := cache.Write(cachePath, q); err != nil {
-		fmt.Fprintf(os.Stderr, "Cache write error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("cache write: %w", err)
 	}
+	return nil
 }
 
 // runStatus outputs JSON status for the GNOME extension or other consumers.
-func runStatus(creds *auth.Credentials, cfg *config.Config, cachePath string, noPoll, forcePoll bool) {
+func runStatus(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath string, noPoll, forcePoll bool, apiURL string) {
 	var pollErr string
 
 	cached := cache.Read(cachePath)
@@ -127,13 +190,13 @@ func runStatus(creds *auth.Credentials, cfg *config.Config, cachePath string, no
 			resp := buildStatusResponse(nil, cfg, "no cached data available")
 			resp.ClaudeRunning = claudeRunning
 			resp.Auth = authState
-			outputJSON(resp)
+			_ = outputJSON(w, resp)
 			return
 		}
 		resp := buildStatusResponse(cached, cfg, "")
 		resp.ClaudeRunning = claudeRunning
 		resp.Auth = authState
-		outputJSON(resp)
+		_ = outputJSON(w, resp)
 		return
 	}
 
@@ -145,7 +208,7 @@ func runStatus(creds *auth.Credentials, cfg *config.Config, cachePath string, no
 	needPoll := forcePoll || cached == nil || !cached.IsFresh(cfg.API.StaleAfter)
 
 	if canPoll && needPoll {
-		q, err := poller.Poll(creds.AccessToken, cfg.API.Model, defaultPollTimeout)
+		q, err := poller.Poll(creds.AccessToken, cfg.API.Model, defaultPollTimeout, apiURL)
 		if err != nil {
 			pollErr = err.Error()
 		} else {
@@ -167,7 +230,7 @@ func runStatus(creds *auth.Credentials, cfg *config.Config, cachePath string, no
 	resp := buildStatusResponse(cached, cfg, pollErr)
 	resp.ClaudeRunning = claudeRunning
 	resp.Auth = authState
-	outputJSON(resp)
+	_ = outputJSON(w, resp)
 }
 
 // authStatus returns the auth state string for the status JSON.
@@ -181,15 +244,15 @@ func authStatus(creds *auth.Credentials) string {
 	return "valid"
 }
 
-// outputJSON marshals v to JSON and writes to stdout.
-func outputJSON(v any) {
+// outputJSON marshals v to JSON and writes to w.
+func outputJSON(w io.Writer, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "JSON marshal error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("JSON marshal: %w", err)
 	}
 	data = append(data, '\n')
-	os.Stdout.Write(data)
+	_, err = w.Write(data)
+	return err
 }
 
 // buildStatusResponse constructs a StatusResponse from cached quota data.
@@ -232,31 +295,29 @@ func colorForPct(pct int, cfg *config.Config) string {
 }
 
 // runDashboard renders the full CLI dashboard.
-func runDashboard(creds *auth.Credentials, cfg *config.Config, cachePath string, noPoll, forcePoll, noCost bool, period string) {
+func runDashboard(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath, projectsPath string, noPoll, forcePoll, noCost bool, period, apiURL string) error {
 	showCost := cfg.Display.ShowCost && !noCost
 
-	fmt.Println(dashboard.RenderAccount(creds))
-	fmt.Println()
+	fmt.Fprintln(w, dashboard.RenderAccount(creds))
+	fmt.Fprintln(w)
 
-	quota := pollOrReadCache(creds, cfg, cachePath, noPoll, forcePoll)
-	fmt.Println(dashboard.RenderQuota(quota, cfg))
-	fmt.Println()
+	quota := pollOrReadCache(w, creds, cfg, cachePath, noPoll, forcePoll, apiURL)
+	fmt.Fprintln(w, dashboard.RenderQuota(quota, cfg))
+	fmt.Fprintln(w)
 
-	entries, err := reader.LoadEntries("", nil, nil)
+	entries, err := reader.LoadEntries(projectsPath, nil, nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading usage data: %v\n", err)
-		return
+		return fmt.Errorf("loading usage data: %w", err)
 	}
 	if len(entries) == 0 {
-		fmt.Println(dashboard.DimText("No usage data found in ~/.claude/projects/"))
-		return
+		fmt.Fprintln(w, dashboard.DimText("No usage data found in ~/.claude/projects/"))
+		return nil
 	}
 
 	periods := cfg.Display.Periods
 	if period != "" {
 		if _, ok := analyzer.FindPeriod(period); !ok {
-			fmt.Fprintf(os.Stderr, "Unknown period %q (valid: today, 7d, 30d, all)\n", period)
-			os.Exit(1)
+			return fmt.Errorf("unknown period %q (valid: today, 7d, 30d, all)", period)
 		}
 		periods = []string{period}
 	}
@@ -264,8 +325,8 @@ func runDashboard(creds *auth.Credentials, cfg *config.Config, cachePath string,
 	overrides := buildPricingOverrides(cfg)
 
 	summaries := analyzer.SummarizeByPeriods(entries, periods, overrides)
-	fmt.Println(dashboard.RenderUsageTable(summaries, showCost))
-	fmt.Println()
+	fmt.Fprintln(w, dashboard.RenderUsageTable(summaries, showCost))
+	fmt.Fprintln(w)
 
 	// Model breakdown for the widest requested period (reuse already-loaded entries).
 	if len(summaries) > 0 {
@@ -274,20 +335,21 @@ func runDashboard(creds *auth.Credentials, cfg *config.Config, cachePath string,
 			filtered := analyzer.FilterEntries(entries, p.Start, p.End)
 			modelSummaries := analyzer.SummarizeByModel(filtered, overrides)
 			if len(modelSummaries) > 0 {
-				fmt.Println(dashboard.RenderModelTable(modelSummaries, showCost))
+				fmt.Fprintln(w, dashboard.RenderModelTable(modelSummaries, showCost))
 			}
 		}
 	}
 
 	burnRate := dashboard.RenderBurnRate(summaries)
 	if burnRate != "" {
-		fmt.Println()
-		fmt.Println(burnRate)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, burnRate)
 	}
+	return nil
 }
 
 // pollOrReadCache handles quota polling logic.
-func pollOrReadCache(creds *auth.Credentials, cfg *config.Config, cachePath string, noPoll, forcePoll bool) *cache.QuotaCache {
+func pollOrReadCache(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath string, noPoll, forcePoll bool, apiURL string) *cache.QuotaCache {
 	canPoll := cfg.API.Enabled && creds != nil && !creds.IsExpired() && !noPoll
 
 	if !canPoll {
@@ -299,12 +361,12 @@ func pollOrReadCache(creds *auth.Credentials, cfg *config.Config, cachePath stri
 
 	if !needPoll {
 		age := int(cached.AgeSeconds())
-		fmt.Println(dashboard.DimText(fmt.Sprintf("Using cached rate limits (%ds old, stale after %ds)", age, cfg.API.StaleAfter)))
+		fmt.Fprintln(w, dashboard.DimText(fmt.Sprintf("Using cached rate limits (%ds old, stale after %ds)", age, cfg.API.StaleAfter)))
 		return cached
 	}
 
-	fmt.Println(dashboard.DimText("Polling API for rate limits..."))
-	q, err := poller.Poll(creds.AccessToken, cfg.API.Model, defaultPollTimeout)
+	fmt.Fprintln(w, dashboard.DimText("Polling API for rate limits..."))
+	q, err := poller.Poll(creds.AccessToken, cfg.API.Model, defaultPollTimeout, apiURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Poll failed: %v\n", err)
 		return cached

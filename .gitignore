@@ -1,6 +1,9 @@
 # Binary
 /claude-usage
 
+# Local tool binaries
+.bin/
+
 # Go
 *.exe
 *.exe~

@@ -12,32 +12,55 @@ type ModelPrice struct {
 }
 
 // DefaultPricing is the built-in pricing table.
+// Prices are per 1M tokens. CacheWrite = 5-minute cache write (1.25x input).
+// CacheRead = cache hit/refresh (0.1x input).
+// Source: https://docs.anthropic.com/en/docs/about-claude/pricing
 var DefaultPricing = map[string]ModelPrice{
-	// Opus
-	"claude-opus-4":   {15.0, 75.0, 18.75, 1.50},
-	"claude-opus-4-7": {15.0, 75.0, 18.75, 1.50},
-	// Sonnet
-	"claude-sonnet-4":              {3.0, 15.0, 3.75, 0.30},
-	"claude-sonnet-4-5":            {3.0, 15.0, 3.75, 0.30},
-	"claude-sonnet-4-5-20250514":   {3.0, 15.0, 3.75, 0.30},
-	// Haiku
-	"claude-haiku-4-5":             {0.80, 4.0, 1.0, 0.08},
-	"claude-haiku-4-5-20251001":    {0.80, 4.0, 1.0, 0.08},
-	// Legacy Sonnet 3.5
-	"claude-3-5-sonnet-20241022":   {3.0, 15.0, 3.75, 0.30},
-	"claude-3-5-sonnet-20240620":   {3.0, 15.0, 3.75, 0.30},
+	// Opus 4.5+ generation ($5/$25)
+	"claude-opus-4-8":            {5.0, 25.0, 6.25, 0.50},
+	"claude-opus-4-7":            {5.0, 25.0, 6.25, 0.50},
+	"claude-opus-4-6":            {5.0, 25.0, 6.25, 0.50},
+	"claude-opus-4-5":            {5.0, 25.0, 6.25, 0.50},
+	"claude-opus-4-5-20251101":   {5.0, 25.0, 6.25, 0.50},
+	// Opus 4.0–4.1 generation ($15/$75)
+	"claude-opus-4-1":            {15.0, 75.0, 18.75, 1.50},
+	"claude-opus-4-1-20250805":   {15.0, 75.0, 18.75, 1.50},
+	"claude-opus-4":              {15.0, 75.0, 18.75, 1.50},
+	"claude-opus-4-20250514":     {15.0, 75.0, 18.75, 1.50},
+	// Sonnet ($3/$15)
+	"claude-sonnet-4-6":          {3.0, 15.0, 3.75, 0.30},
+	"claude-sonnet-4-5":          {3.0, 15.0, 3.75, 0.30},
+	"claude-sonnet-4-5-20250929": {3.0, 15.0, 3.75, 0.30},
+	"claude-sonnet-4":            {3.0, 15.0, 3.75, 0.30},
+	"claude-sonnet-4-20250514":   {3.0, 15.0, 3.75, 0.30},
+	// Haiku 4.5 ($1/$5)
+	"claude-haiku-4-5":           {1.0, 5.0, 1.25, 0.10},
+	"claude-haiku-4-5-20251001":  {1.0, 5.0, 1.25, 0.10},
+	// Legacy Haiku 3.5 ($0.80/$4)
+	"claude-3-5-haiku-20241022":  {0.80, 4.0, 1.0, 0.08},
+	// Legacy Sonnet 3.5 ($3/$15)
+	"claude-3-5-sonnet-20241022": {3.0, 15.0, 3.75, 0.30},
+	"claude-3-5-sonnet-20240620": {3.0, 15.0, 3.75, 0.30},
 }
 
 // prefixMap for fallback matching of unknown model variants.
+// Longer prefixes first so date-suffixed variants match correctly.
 var prefixMap = []struct {
 	prefix string
 	key    string
 }{
+	{"claude-opus-4-8", "claude-opus-4-8"},
+	{"claude-opus-4-7", "claude-opus-4-7"},
+	{"claude-opus-4-6", "claude-opus-4-6"},
+	{"claude-opus-4-5", "claude-opus-4-5"},
+	{"claude-opus-4-1", "claude-opus-4-1"},
 	{"claude-opus-4", "claude-opus-4"},
+	{"claude-sonnet-4-6", "claude-sonnet-4-6"},
 	{"claude-sonnet-4-5", "claude-sonnet-4-5"},
 	{"claude-sonnet-4", "claude-sonnet-4"},
 	{"claude-haiku-4-5", "claude-haiku-4-5"},
 	{"claude-3-5-sonnet", "claude-3-5-sonnet-20241022"},
+	{"claude-3-5-haiku", "claude-3-5-haiku-20241022"},
 }
 
 // Get returns pricing for a model. Falls back to prefix matching, then Sonnet.
