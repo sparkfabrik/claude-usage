@@ -91,14 +91,8 @@ func RenderAccount(creds *auth.Credentials) string {
 		)
 	}
 
-	sub := creds.SubscriptionType
-	if sub == "" {
-		sub = "unknown"
-	}
-	tier := creds.RateLimitTier
-	if tier == "" {
-		tier = "unknown"
-	}
+	sub := creds.DisplaySubscription()
+	tier := creds.DisplayTier()
 	expired := ""
 	if creds.IsExpired() {
 		expired = "\n  " + redStyle.Render("Auth expired") + dimStyle.Render(" — run Claude Code to refresh")

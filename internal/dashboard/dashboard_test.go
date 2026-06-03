@@ -55,16 +55,16 @@ func TestRenderAccount_NilCreds(t *testing.T) {
 
 func TestRenderAccount_ValidCreds(t *testing.T) {
 	creds := &auth.Credentials{
-		SubscriptionType: "pro",
-		RateLimitTier:    "t5",
+		SubscriptionType: "team",
+		RateLimitTier:    "default_claude_max_5x",
 		ExpiresAt:        time.Now().Add(1 * time.Hour).UnixMilli(),
 	}
 	out := RenderAccount(creds)
-	if !strings.Contains(out, "pro") {
-		t.Errorf("expected 'pro' in output, got %q", out)
+	if !strings.Contains(out, "Team") {
+		t.Errorf("expected 'Team' in output, got %q", out)
 	}
-	if !strings.Contains(out, "t5") {
-		t.Errorf("expected 't5' in output, got %q", out)
+	if !strings.Contains(out, "Max 5x") {
+		t.Errorf("expected 'Max 5x' in output, got %q", out)
 	}
 }
 
@@ -83,8 +83,8 @@ func TestRenderAccount_EmptyFields(t *testing.T) {
 		ExpiresAt: time.Now().Add(1 * time.Hour).UnixMilli(),
 	}
 	out := RenderAccount(creds)
-	if !strings.Contains(out, "unknown") {
-		t.Errorf("expected 'unknown' for empty fields, got %q", out)
+	if !strings.Contains(out, "Unknown") {
+		t.Errorf("expected 'Unknown' for empty fields, got %q", out)
 	}
 }
 
