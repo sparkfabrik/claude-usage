@@ -146,6 +146,10 @@ func RenderQuota(q *cache.QuotaCache, cfg *config.Config) string {
 	)
 }
 
+// costFootnote clarifies that the cost column is an estimate based on public
+// API pricing, not actual spend (subscription plans are billed at a flat rate).
+const costFootnote = "* Estimated pay-as-you-go API cost. Subscription plans are billed flat."
+
 // RenderUsageTable renders usage summaries as a proper table.
 func RenderUsageTable(summaries []*analyzer.Summary, showCost bool) string {
 	if len(summaries) == 0 {
@@ -154,7 +158,7 @@ func RenderUsageTable(summaries []*analyzer.Summary, showCost bool) string {
 
 	headers := []string{"Period", "Msgs", "Input", "Output", "Cache W/R", "Total"}
 	if showCost {
-		headers = append(headers, "Cost")
+		headers = append(headers, "Est. API Cost")
 	}
 
 	const (
@@ -204,7 +208,11 @@ func RenderUsageTable(summaries []*analyzer.Summary, showCost bool) string {
 			return s
 		})
 
-	return titleStyle.Render("Usage by Period") + "\n" + t.Render()
+	out := titleStyle.Render("Usage by Period") + "\n" + t.Render()
+	if showCost {
+		out += "\n" + dimStyle.Render(costFootnote)
+	}
+	return out
 }
 
 // RenderModelTable renders per-model breakdown.
@@ -215,7 +223,7 @@ func RenderModelTable(summaries []*analyzer.Summary, showCost bool) string {
 
 	headers := []string{"Model", "Msgs", "Input", "Output", "Cache W/R", "Total"}
 	if showCost {
-		headers = append(headers, "Cost")
+		headers = append(headers, "Est. API Cost")
 	}
 
 	const (
@@ -265,7 +273,11 @@ func RenderModelTable(summaries []*analyzer.Summary, showCost bool) string {
 			return s
 		})
 
-	return titleStyle.Render("Usage by Model") + "\n" + t.Render()
+	out := titleStyle.Render("Usage by Model") + "\n" + t.Render()
+	if showCost {
+		out += "\n" + dimStyle.Render(costFootnote)
+	}
+	return out
 }
 
 // RenderBurnRate renders the burn rate line.
