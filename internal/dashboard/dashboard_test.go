@@ -83,8 +83,10 @@ func TestRenderAccount_EmptyFields(t *testing.T) {
 		ExpiresAt: time.Now().Add(1 * time.Hour).UnixMilli(),
 	}
 	out := RenderAccount(creds)
-	if !strings.Contains(out, "Unknown") {
-		t.Errorf("expected 'Unknown' for empty fields, got %q", out)
+	// Both SubscriptionType and RateLimitTier are empty, so both the Plan and
+	// Rate Tier lines must render "Unknown".
+	if n := strings.Count(out, "Unknown"); n != 2 {
+		t.Errorf("expected 'Unknown' twice for empty fields, got %d in %q", n, out)
 	}
 }
 

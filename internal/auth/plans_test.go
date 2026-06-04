@@ -30,6 +30,7 @@ func TestDisplayTier(t *testing.T) {
 	}{
 		{"default_claude_free", "Free"},
 		{"default_claude_pro", "Pro"},
+		{"default_claude_max", "Max"},
 		{"default_claude_max_5x", "Max 5x"},
 		{"default_claude_max_20x", "Max 20x"},
 		{"default_claude_some_new_tier", "default_claude_some_new_tier"}, // raw passthrough

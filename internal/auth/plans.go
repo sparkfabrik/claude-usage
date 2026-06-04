@@ -14,6 +14,7 @@ var subscriptionNames = map[string]string{
 var tierNames = map[string]string{
 	"default_claude_free":    "Free",
 	"default_claude_pro":     "Pro",
+	"default_claude_max":     "Max",
 	"default_claude_max_5x":  "Max 5x",
 	"default_claude_max_20x": "Max 20x",
 }
