@@ -214,8 +214,11 @@ func TestRenderUsageTable_NoCost(t *testing.T) {
 	}
 
 	out := RenderUsageTable(summaries, false)
+	if strings.Contains(out, "Est. API Cost") {
+		t.Errorf("should not contain 'Est. API Cost' header when showCost=false")
+	}
 	if strings.Contains(out, "Cost") {
-		t.Errorf("should not contain Cost header when showCost=false")
+		t.Errorf("should not contain any Cost header when showCost=false")
 	}
 	if strings.Contains(out, "Subscription plans are billed flat") {
 		t.Errorf("should not contain cost footnote when showCost=false")
@@ -279,8 +282,11 @@ func TestRenderModelTable_NoCost(t *testing.T) {
 	}
 
 	out := RenderModelTable(summaries, false)
+	if strings.Contains(out, "Est. API Cost") {
+		t.Errorf("should not contain 'Est. API Cost' header when showCost=false")
+	}
 	if strings.Contains(out, "Cost") {
-		t.Errorf("should not contain Cost header when showCost=false")
+		t.Errorf("should not contain any Cost header when showCost=false")
 	}
 	if strings.Contains(out, "Subscription plans are billed flat") {
 		t.Errorf("should not contain cost footnote when showCost=false")
