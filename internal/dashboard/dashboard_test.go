@@ -193,6 +193,12 @@ func TestRenderUsageTable_WithData(t *testing.T) {
 	if !strings.Contains(out, "$0.15") {
 		t.Errorf("expected cost '$0.15'")
 	}
+	if !strings.Contains(out, "Est. API Cost") {
+		t.Errorf("expected 'Est. API Cost' column header")
+	}
+	if !strings.Contains(out, "Subscription plans are billed flat") {
+		t.Errorf("expected cost footnote when showCost=true")
+	}
 }
 
 func TestRenderUsageTable_NoCost(t *testing.T) {
@@ -208,8 +214,14 @@ func TestRenderUsageTable_NoCost(t *testing.T) {
 	}
 
 	out := RenderUsageTable(summaries, false)
+	if strings.Contains(out, "Est. API Cost") {
+		t.Errorf("should not contain 'Est. API Cost' header when showCost=false")
+	}
 	if strings.Contains(out, "Cost") {
-		t.Errorf("should not contain Cost header when showCost=false")
+		t.Errorf("should not contain any Cost header when showCost=false")
+	}
+	if strings.Contains(out, "Subscription plans are billed flat") {
+		t.Errorf("should not contain cost footnote when showCost=false")
 	}
 }
 
@@ -249,6 +261,12 @@ func TestRenderModelTable_WithData(t *testing.T) {
 	if !strings.Contains(out, "$0.10") {
 		t.Errorf("expected cost '$0.10'")
 	}
+	if !strings.Contains(out, "Est. API Cost") {
+		t.Errorf("expected 'Est. API Cost' column header")
+	}
+	if !strings.Contains(out, "Subscription plans are billed flat") {
+		t.Errorf("expected cost footnote when showCost=true")
+	}
 }
 
 func TestRenderModelTable_NoCost(t *testing.T) {
@@ -264,8 +282,14 @@ func TestRenderModelTable_NoCost(t *testing.T) {
 	}
 
 	out := RenderModelTable(summaries, false)
+	if strings.Contains(out, "Est. API Cost") {
+		t.Errorf("should not contain 'Est. API Cost' header when showCost=false")
+	}
 	if strings.Contains(out, "Cost") {
-		t.Errorf("should not contain Cost header when showCost=false")
+		t.Errorf("should not contain any Cost header when showCost=false")
+	}
+	if strings.Contains(out, "Subscription plans are billed flat") {
+		t.Errorf("should not contain cost footnote when showCost=false")
 	}
 	if !strings.Contains(out, "Cache W/R") {
 		t.Errorf("expected 'Cache W/R' column even without cost")
