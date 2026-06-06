@@ -95,9 +95,26 @@ curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/insta
 
 When passing flags through a piped install, append them after `bash -s --` (e.g. `bash -s -- --no-reader`).
 
+### Verifying the installer
+
+The installer verifies every binary and archive it downloads against the release `checksums.txt`. Piping `curl … | bash` cannot verify the script itself, so to close that gap download `install.sh`, check it, then run it:
+
+```bash
+TAG=v1.0.0   # or the tag you want
+base="https://github.com/sparkfabrik/claude-usage/releases/download/${TAG}"
+curl -fsSLO "${base}/install.sh"
+curl -fsSLO "${base}/checksums.txt"
+# Linux: sha256sum --ignore-missing -c checksums.txt
+# macOS: shasum -a 256 --ignore-missing -c checksums.txt
+sha256sum --ignore-missing -c checksums.txt   # expect: install.sh: OK
+bash install.sh
+```
+
+`install.sh`, the CLI/tray binaries, and `claude-usage-readers.tar.gz` all have entries in `checksums.txt`.
+
 ### What the installer does
 
-1. Downloads the correct binary for your OS/arch from GitHub Releases
+1. Downloads the correct binary for your OS/arch from GitHub Releases, then verifies it against the release `checksums.txt` (SHA-256) before installing — the CLI binary, the macOS tray binary, and the readers archive are all checked
 2. Installs to `~/.local/share/claude-usage/` with symlinks in `~/.local/bin/`
 3. Detects your desktop environment and wires the matching reader (unless `--no-reader`):
    - **GNOME** → symlinks the shell extension, prints enable command

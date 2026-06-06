@@ -88,6 +88,13 @@ archives:
 
 checksum:
   name_template: "checksums.txt"
+  # Build artifacts (binaries/archives) are checksummed automatically. The
+  # installer and readers tarball are extra_files, so list them here too,
+  # otherwise they would be absent from checksums.txt and install.sh could
+  # not verify them.
+  extra_files:
+    - glob: install.sh
+    - glob: claude-usage-readers.tar.gz
 
 changelog:
   sort: asc
@@ -124,3 +131,4 @@ release:
   name_template: "v{{ .Version }}"
   extra_files:
     - glob: claude-usage-readers.tar.gz
+    - glob: install.sh
