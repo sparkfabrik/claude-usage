@@ -72,6 +72,46 @@ download() {
   fi
 }
 
+# sha256 helper — Linux ships sha256sum, macOS ships shasum.
+sha256_of() {
+  local file="${1}"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${file}" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${file}" | awk '{print $1}'
+  else
+    die "No SHA-256 tool found (need sha256sum or shasum)."
+  fi
+}
+
+# Verify a downloaded file against checksums.txt.
+#   ${1} = local path   ${2} = asset name as listed in checksums.txt
+verify_checksum() {
+  local file="${1}" name="${2}" want got
+  # checksums.txt format: "<hash>  <name>"; anchor on the trailing name.
+  want=$(awk -v n="${name}" '$2 == n {print $1}' "${TMP_DIR}/checksums.txt")
+  [ -n "${want}" ] || die "No checksum entry for ${name} in checksums.txt. \
+This release may predate checksum coverage for it — install a newer version, \
+or run that tag's own install.sh asset (CLAUDE_USAGE_VERSION=${CLAUDE_USAGE_VERSION})."
+  got=$(sha256_of "${file}")
+  if [ "${want}" != "${got}" ]; then
+    die "Checksum mismatch for ${name}: expected ${want}, got ${got}"
+  fi
+}
+
+# Create/refresh a symlink, reporting CHANGED only when the link target
+# actually changes. Keeps reruns idempotent in output, not just on disk —
+# `ln -sfn` always succeeds, so an unconditional `changed` lies on every rerun.
+#   ${1} = target   ${2} = link path   ${3} = change description
+relink() {
+  local target="${1}" link="${2}" desc="${3}"
+  if [ "$(readlink "${link}" 2>/dev/null)" = "${target}" ]; then
+    return 0
+  fi
+  ln -sfn "${target}" "${link}" || die "Failed to create symlink ${link} -> ${target}"
+  changed "${desc}"
+}
+
 # --- Argument parsing -----------------------------------------------------
 # These toggles gate wiring, not provisioning: reader and statusline files are
 # always placed on disk and symlinked; only the settings.json registration
@@ -246,21 +286,28 @@ RELEASE_URL="https://github.com/${REPO}/releases/download/${CLAUDE_USAGE_VERSION
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
+# Checksums manifest — used to verify every artifact below against tampering.
+download "${RELEASE_URL}/checksums.txt" "${TMP_DIR}/checksums.txt" \
+  || die "Failed to download checksums.txt: ${RELEASE_URL}/checksums.txt"
+
 # CLI binary
 BINARY_NAME="claude-usage_${OS}_${ARCH}"
 download "${RELEASE_URL}/${BINARY_NAME}" "${TMP_DIR}/claude-usage" \
   || die "Failed to download CLI binary: ${RELEASE_URL}/${BINARY_NAME}"
+verify_checksum "${TMP_DIR}/claude-usage" "${BINARY_NAME}"
 
 # macOS tray binary
 if [ "${OS}" = "darwin" ]; then
   TRAY_NAME="claude-usage-tray_${OS}_${ARCH}"
   download "${RELEASE_URL}/${TRAY_NAME}" "${TMP_DIR}/claude-usage-tray" \
     || die "Failed to download tray binary: ${RELEASE_URL}/${TRAY_NAME}"
+  verify_checksum "${TMP_DIR}/claude-usage-tray" "${TRAY_NAME}"
 fi
 
 # Readers archive
 download "${RELEASE_URL}/claude-usage-readers.tar.gz" "${TMP_DIR}/readers.tar.gz" \
   || die "Failed to download readers archive"
+verify_checksum "${TMP_DIR}/readers.tar.gz" "claude-usage-readers.tar.gz"
 
 # --- Install binaries -----------------------------------------------------
 mkdir -p "${INSTALL_DIR}/bin"
@@ -412,8 +459,7 @@ PYEOF_HOOKS
   gnome)
     EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
     mkdir -p "$(dirname "${EXT_DIR}")"
-    ln -sfn "${INSTALL_DIR}/readers/gnome-shell-extension" "${EXT_DIR}"
-    changed "GNOME extension installed"
+    relink "${INSTALL_DIR}/readers/gnome-shell-extension" "${EXT_DIR}" "GNOME extension installed"
     echo ""
     echo "GNOME extension installed! Enable with:"
     echo "  gnome-extensions enable claude-usage@claude-code-usage"
@@ -438,8 +484,7 @@ PYEOF_HOOKS
     fi
     ;;
   waybar)
-    ln -sf "${INSTALL_DIR}/readers/waybar/claude-usage-waybar.sh" "${BIN_DIR}/claude-usage-waybar.sh"
-    changed "Waybar reader installed"
+    relink "${INSTALL_DIR}/readers/waybar/claude-usage-waybar.sh" "${BIN_DIR}/claude-usage-waybar.sh" "Waybar reader installed"
     echo ""
     echo "Waybar module installed! Add to your Waybar config:"
     echo ""
