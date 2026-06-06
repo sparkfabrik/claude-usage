@@ -216,6 +216,24 @@ func TestConfigPaths_XDGUnset_HomeFallback(t *testing.T) {
 	}
 }
 
+func TestConfigPaths_NoHomeNoXDG(t *testing.T) {
+	// XDG unset and home undeterminable: fall back to ./config.yaml only.
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	paths := configPaths()
+	if len(paths) != 1 || paths[0] != "config.yaml" {
+		t.Errorf("paths = %v, want [config.yaml]", paths)
+	}
+}
+
+func TestReferencePath_NoHomeNoXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if path, found := ReferencePath(); found {
+		t.Errorf("expected found=false, got %q", path)
+	}
+}
+
 func TestResolvePath_XDGSet(t *testing.T) {
 	dir := t.TempDir()
 	cfgDir := filepath.Join(dir, "claude-code-usage")

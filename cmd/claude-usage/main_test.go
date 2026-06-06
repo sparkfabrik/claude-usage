@@ -1480,6 +1480,28 @@ func TestPrintConfigFooter_CustomActive(t *testing.T) {
 	}
 }
 
+func TestPrintConfigFooter_ActiveFromChain(t *testing.T) {
+	// A config.yaml in the search chain exists; Active config shows its path.
+	xdgDir := t.TempDir()
+	cfgDir := filepath.Join(xdgDir, "claude-code-usage")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	active := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(active, []byte("api:\n  enabled: true\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	var buf bytes.Buffer
+	printConfigFooter(&buf, "")
+	out := buf.String()
+
+	if !strings.Contains(out, "Active config: "+active) {
+		t.Errorf("expected Active config %s, got:\n%s", active, out)
+	}
+}
+
 func TestPrintConfigFooter_DefaultsWithReference(t *testing.T) {
 	// No config.yaml in chain, but config.default.yaml exists in the config dir.
 	xdgDir := t.TempDir()
