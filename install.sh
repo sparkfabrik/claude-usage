@@ -192,6 +192,15 @@ PYEOF_UNHOOK
     fi
   fi
 
+  # Remove the reference config only (never the user's config.yaml). Drop the
+  # config dir afterward only when empty, so a kept config.yaml preserves it.
+  CFG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/claude-code-usage"
+  if [ -f "${CFG_DIR}/config.default.yaml" ]; then
+    rm -f "${CFG_DIR}/config.default.yaml"
+    changed "removed ${CFG_DIR}/config.default.yaml"
+  fi
+  rmdir "${CFG_DIR}" 2>/dev/null || true
+
   # Remove install directory
   if [ -d "${INSTALL_DIR}" ]; then
     rm -rf "${INSTALL_DIR}"
@@ -490,6 +499,24 @@ elif [ -f "${STATUSLINE_SCRIPT}" ]; then
   echo "  or add this to ~/.claude/settings.json manually:"
   echo "    \"statusLine\": { \"type\": \"command\", \"command\": \"bash ${BIN_DIR}/claude-usage-statusline.sh\" }"
   echo ""
+fi
+
+# --- Reference config -----------------------------------------------------
+# Provision config.default.yaml as a discoverable, version-matched reference.
+# Always overwrite the reference; never create or touch the user's config.yaml.
+CFG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/claude-code-usage"
+mkdir -p "${CFG_DIR}"
+CFG_REF="${CFG_DIR}/config.default.yaml"
+CFG_REF_URL="https://raw.githubusercontent.com/${REPO}/${CLAUDE_USAGE_VERSION}/config.default.yaml"
+if download "${CFG_REF_URL}" "${CFG_REF}"; then
+  changed "reference config written to ${CFG_REF}"
+  echo ""
+  echo "NOTE: ${CFG_REF} is a reference only — the tool never reads it, and"
+  echo "  every install/upgrade overwrites it. Do not edit it; copy it to customize:"
+  echo "    cp \"${CFG_REF}\" \"${CFG_DIR}/config.yaml\""
+  echo ""
+else
+  echo "WARNING: could not download reference config from ${CFG_REF_URL}; skipping (the tool works without it)." >&2
 fi
 
 # --- Finalize -------------------------------------------------------------

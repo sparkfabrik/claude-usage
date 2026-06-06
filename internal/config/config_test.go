@@ -193,3 +193,196 @@ func TestConfigPaths(t *testing.T) {
 		t.Errorf("last path = %q, want config.yaml", paths[len(paths)-1])
 	}
 }
+
+func TestConfigPaths_XDGSet(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/custom/cfg")
+	paths := configPaths()
+	want := filepath.Join("/custom/cfg", "claude-code-usage", "config.yaml")
+	if paths[0] != want {
+		t.Errorf("paths[0] = %q, want %q", paths[0], want)
+	}
+}
+
+func TestConfigPaths_XDGUnset_HomeFallback(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir: %v", err)
+	}
+	paths := configPaths()
+	want := filepath.Join(home, ".config", "claude-code-usage", "config.yaml")
+	if paths[0] != want {
+		t.Errorf("paths[0] = %q, want %q", paths[0], want)
+	}
+}
+
+func TestConfigPaths_NoHomeNoXDG(t *testing.T) {
+	// XDG unset and home undeterminable: fall back to ./config.yaml only.
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	paths := configPaths()
+	if len(paths) != 1 || paths[0] != "config.yaml" {
+		t.Errorf("paths = %v, want [config.yaml]", paths)
+	}
+}
+
+func TestReferencePath_NoHomeNoXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if path, found := ReferencePath(); found {
+		t.Errorf("expected found=false, got %q", path)
+	}
+}
+
+func TestResolvePath_XDGSet(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "claude-code-usage")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(path, []byte("api:\n  stale_after: 99\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	got, found := ResolvePath()
+	if !found {
+		t.Fatal("expected found=true")
+	}
+	if got != path {
+		t.Errorf("got %q, want %q", got, path)
+	}
+}
+
+func TestResolvePath_FirstMatchWins(t *testing.T) {
+	// XDG-resolved path exists; it must win over ./config.yaml.
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "claude-code-usage")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	xdgPath := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(xdgPath, []byte("api:\n  stale_after: 1\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	got, found := ResolvePath()
+	if !found || got != xdgPath {
+		t.Errorf("got (%q, %v), want (%q, true)", got, found, xdgPath)
+	}
+}
+
+func TestResolvePath_SkipsDirectory(t *testing.T) {
+	// A directory named config.yaml at the XDG path must not win the chain;
+	// resolution falls through to ./config.yaml.
+	xdgDir := t.TempDir()
+	cfgDir := filepath.Join(xdgDir, "claude-code-usage")
+	if err := os.MkdirAll(filepath.Join(cfgDir, "config.yaml"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	// Run from a CWD that has a real ./config.yaml file.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	work := t.TempDir()
+	local := filepath.Join(work, "config.yaml")
+	if err := os.WriteFile(local, []byte("api:\n  enabled: true\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chdir(work); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	got, found := ResolvePath()
+	if !found || got != "config.yaml" {
+		t.Errorf("got (%q, %v), want (config.yaml, true) — directory should be skipped", got, found)
+	}
+}
+
+func TestResolvePath_NoConfigFound(t *testing.T) {
+	// Point XDG at an empty dir and run from an empty CWD so neither
+	// chain entry exists.
+	xdgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	got, found := ResolvePath()
+	if found {
+		t.Errorf("expected found=false, got path %q", got)
+	}
+}
+
+func TestLoad_NoConfig_AppliesDefaults(t *testing.T) {
+	xdgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	cfg := Load("")
+	if cfg.API.StaleAfter != 60 {
+		t.Errorf("StaleAfter = %d, want 60 (default)", cfg.API.StaleAfter)
+	}
+}
+
+func TestLoad_XDGResolved(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "claude-code-usage")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(path, []byte("api:\n  stale_after: 42\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	cfg := Load("")
+	if cfg.API.StaleAfter != 42 {
+		t.Errorf("StaleAfter = %d, want 42 (from XDG config)", cfg.API.StaleAfter)
+	}
+}
+
+func TestLoad_ExplicitPathOverridesChain(t *testing.T) {
+	// XDG config exists but explicit path must take precedence.
+	xdgDir := t.TempDir()
+	xdgCfgDir := filepath.Join(xdgDir, "claude-code-usage")
+	if err := os.MkdirAll(xdgCfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(xdgCfgDir, "config.yaml"), []byte("api:\n  stale_after: 1\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	explicitDir := t.TempDir()
+	explicit := filepath.Join(explicitDir, "my.yaml")
+	if err := os.WriteFile(explicit, []byte("api:\n  stale_after: 7\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := Load(explicit)
+	if cfg.API.StaleAfter != 7 {
+		t.Errorf("StaleAfter = %d, want 7 (from explicit path)", cfg.API.StaleAfter)
+	}
+}
