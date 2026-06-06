@@ -5,11 +5,20 @@
 #   curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | bash
 #   curl -fsSL ... | CLAUDE_USAGE_VERSION=v1.0.0 bash
 #   INSTALL_DIR=/custom/path ./install.sh
+#   ./install.sh --statusline          # opt in to Claude Code statusline
+#   CLAUDE_USAGE_STATUSLINE=1 ./install.sh
+#   ./install.sh --no-reader           # opt out of desktop reader wiring
+#   CLAUDE_USAGE_READER=0 ./install.sh
 #   ./install.sh --uninstall
 #
 # Environment variables:
-#   CLAUDE_USAGE_VERSION  — Version tag to install (default: latest release)
-#   INSTALL_DIR           — Installation directory (default: ~/.local/share/claude-usage)
+#   CLAUDE_USAGE_VERSION     — Version tag to install (default: latest release)
+#   INSTALL_DIR              — Installation directory (default: ~/.local/share/claude-usage)
+#   CLAUDE_USAGE_STATUSLINE  — Set to 1 to register the Claude Code statusLine
+#                              in ~/.claude/settings.json (default: off; opt-in)
+#   CLAUDE_USAGE_READER      — Set to 0 to skip desktop reader wiring (GNOME/KDE/
+#                              Waybar/macOS tray). Reader files are still placed
+#                              on disk; only the wiring is skipped (default: on)
 #
 # Output protocol (for Ansible integration):
 #   CHANGED: <description>  — printed for each mutation
@@ -63,8 +72,31 @@ download() {
   fi
 }
 
+# --- Argument parsing -----------------------------------------------------
+# Statusline registration is opt-in: the reader is always provisioned on disk
+# and symlinked, but ~/.claude/settings.json is only mutated when requested.
+INSTALL_STATUSLINE="${CLAUDE_USAGE_STATUSLINE:-0}"
+INSTALL_READER="${CLAUDE_USAGE_READER:-1}"
+UNINSTALL=false
+for arg in "$@"; do
+  case "$arg" in
+    --uninstall)  UNINSTALL=true ;;
+    --statusline) INSTALL_STATUSLINE=1 ;;
+    --no-reader)  INSTALL_READER=0 ;;
+    *)            die "Unknown argument: $arg" ;;
+  esac
+done
+case "$INSTALL_STATUSLINE" in
+  1|true|TRUE|yes|YES|on|ON) INSTALL_STATUSLINE=1 ;;
+  *)                         INSTALL_STATUSLINE=0 ;;
+esac
+case "$INSTALL_READER" in
+  0|false|FALSE|no|NO|off|OFF) INSTALL_READER=0 ;;
+  *)                           INSTALL_READER=1 ;;
+esac
+
 # --- Uninstall ------------------------------------------------------------
-if [[ "${1:-}" == "--uninstall" ]]; then
+if [ "$UNINSTALL" = true ]; then
   # Remove symlinks
   rm -f "$BIN_DIR/claude-usage"
   rm -f "$BIN_DIR/claude-usage-tray"
@@ -262,10 +294,19 @@ if [ "$OS" = "darwin" ]; then
 fi
 
 # --- Reader detection and install -----------------------------------------
-READER="none"
+# The desktop reader is auto-selected from the running environment and wired up
+# by default. --no-reader (or CLAUDE_USAGE_READER=0) skips the wiring; reader
+# files remain on disk under $INSTALL_DIR/readers either way.
 SETTINGS="$HOME/.claude/settings.json"
+READER="none"
 
-if [ "$OS" = "darwin" ]; then
+if [ "$INSTALL_READER" = "0" ]; then
+  READER="skipped"
+  echo ""
+  echo "NOTE: desktop reader wiring skipped (--no-reader)."
+  echo "  Reader files are available under $INSTALL_DIR/readers/"
+  echo ""
+elif [ "$OS" = "darwin" ]; then
   READER="macos"
 elif command -v gnome-shell >/dev/null 2>&1; then
   READER="gnome"
@@ -412,7 +453,7 @@ STATUSLINE_SCRIPT="$INSTALL_DIR/readers/statusline/claude-usage-statusline.sh"
 SETTINGS="$HOME/.claude/settings.json"
 ln -sf "$STATUSLINE_SCRIPT" "$BIN_DIR/claude-usage-statusline.sh"
 
-if [ -f "$STATUSLINE_SCRIPT" ]; then
+if [ "$INSTALL_STATUSLINE" = "1" ] && [ -f "$STATUSLINE_SCRIPT" ]; then
   STATUSLINE_CMD="bash $BIN_DIR/claude-usage-statusline.sh"
   STATUSLINE_NEEDED=false
 
@@ -440,6 +481,14 @@ with open(path, "w") as f:
 PYEOF2
     changed "statusLine registered in $SETTINGS"
   fi
+elif [ -f "$STATUSLINE_SCRIPT" ]; then
+  echo ""
+  echo "NOTE: Claude Code statusline reader is installed but not enabled."
+  echo "  Script symlinked at: $BIN_DIR/claude-usage-statusline.sh"
+  echo "  Enable it by re-running with --statusline (or CLAUDE_USAGE_STATUSLINE=1),"
+  echo "  or add this to ~/.claude/settings.json manually:"
+  echo "    \"statusLine\": { \"type\": \"command\", \"command\": \"bash $BIN_DIR/claude-usage-statusline.sh\" }"
+  echo ""
 fi
 
 # --- Finalize -------------------------------------------------------------

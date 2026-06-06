@@ -187,6 +187,8 @@ Semver: `patch` (fixes/refactors), `minor` (features/flags/readers), `major` (br
 
 ## Important Rules
 
+- **README.md updates are mandatory** whenever a change alters information documented in it (install flags/env vars, usage, CLI options, reader behavior, requirements, `--status` schema, etc.). Update `README.md` in the same change as the implementation — never let it drift from actual behavior.
+- **`install.sh` toggles must expose both a `--flag` and a `CLAUDE_USAGE_*` env var** (e.g. `--statusline`/`CLAUDE_USAGE_STATUSLINE`, `--no-reader`/`CLAUDE_USAGE_READER`). The env var is the only ergonomic toggle through `curl … | bash` (flags require `bash -s -- …`); the flag serves local `./install.sh` runs. Normalize env-var values with a `case` (no bash 4 `,,`) so macOS bash 3.2 keeps working.
 - Every new CLI feature or bug fix must include tests. Run `make test-cli` to verify, then `make test-cli-cover` and report coverage to user.
 - After any Go code change, run `make build-cli`. Ask user about `make install-cli`.
 - After any reader change, ask user about installing the reader.
