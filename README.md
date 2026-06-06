@@ -142,8 +142,12 @@ claude-usage --status --no-poll
 # Show version info
 claude-usage --version
 
-# Use custom config file
+# Use custom config file (overrides the default search chain)
 claude-usage --config /path/to/config.yaml
+claude-usage -c /path/to/config.yaml      # shorthand
+
+# Show where config is loaded from (search chain, active config, reference file)
+claude-usage --help
 ```
 
 ### GNOME Shell extension
@@ -180,7 +184,24 @@ Menu bar item showing "C:X% W:Y%". Click for dropdown with reset times, auth sta
 
 ## Configuration
 
-Default config location: `~/.config/claude-code-usage/config.yaml`
+The config file is **optional** — `claude-usage` runs fully on built-in defaults.
+
+**Search chain** (first existing file wins, XDG-aware):
+
+1. `$XDG_CONFIG_HOME/claude-code-usage/config.yaml` (falls back to `~/.config` when unset)
+2. `./config.yaml` (current directory)
+
+Override the chain entirely with `--config <path>` / `-c <path>`. Run `claude-usage --help`
+to see the search chain, the active config, and the reference-file path.
+
+**Reference file:** the installer provisions a read-only, version-matched
+`config.default.yaml` alongside your config dir
+(`~/.config/claude-code-usage/config.default.yaml`). The tool never loads it — copy it to
+`config.yaml` to start customizing:
+
+```bash
+cp ~/.config/claude-code-usage/config.default.yaml ~/.config/claude-code-usage/config.yaml
+```
 
 See [`config.default.yaml`](config.default.yaml) for all options:
 

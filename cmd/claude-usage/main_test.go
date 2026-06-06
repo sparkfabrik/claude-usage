@@ -1460,3 +1460,83 @@ func writeTempConfig(t *testing.T, content string) string {
 	f.Close()
 	return f.Name()
 }
+
+// --- printConfigFooter ---
+
+func TestPrintConfigFooter_CustomActive(t *testing.T) {
+	// Explicit --config path takes precedence on the Active config line.
+	var buf bytes.Buffer
+	printConfigFooter(&buf, "/tmp/my.yaml")
+	out := buf.String()
+
+	if !strings.Contains(out, "Configuration:") {
+		t.Error("missing Configuration: header")
+	}
+	if !strings.Contains(out, "$XDG_CONFIG_HOME") {
+		t.Error("missing literal search-chain entry")
+	}
+	if !strings.Contains(out, "Active config: /tmp/my.yaml") {
+		t.Errorf("Active config line wrong, got:\n%s", out)
+	}
+}
+
+func TestPrintConfigFooter_DefaultsWithReference(t *testing.T) {
+	// No config.yaml in chain, but config.default.yaml exists in the config dir.
+	xdgDir := t.TempDir()
+	cfgDir := filepath.Join(xdgDir, "claude-code-usage")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	refPath := filepath.Join(cfgDir, "config.default.yaml")
+	if err := os.WriteFile(refPath, []byte("api:\n  enabled: true\n"), 0o644); err != nil {
+		t.Fatalf("write reference: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	// Run from an empty CWD so ./config.yaml does not exist.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	var buf bytes.Buffer
+	printConfigFooter(&buf, "")
+	out := buf.String()
+
+	if !strings.Contains(out, "none — built-in default configuration applied") {
+		t.Errorf("expected defaults-applied line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Reference file: "+refPath) {
+		t.Errorf("expected Reference file line for %s, got:\n%s", refPath, out)
+	}
+}
+
+func TestPrintConfigFooter_DefaultsNoReference(t *testing.T) {
+	// Neither config.yaml nor config.default.yaml exists.
+	xdgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	var buf bytes.Buffer
+	printConfigFooter(&buf, "")
+	out := buf.String()
+
+	if !strings.Contains(out, "none — built-in default configuration applied") {
+		t.Errorf("expected defaults-applied line, got:\n%s", out)
+	}
+	if strings.Contains(out, "Reference file:") {
+		t.Errorf("did not expect Reference file line, got:\n%s", out)
+	}
+}

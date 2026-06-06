@@ -31,11 +31,12 @@ The project should transition from Makefile to a Justfile.
 
 ### File Paths
 
-| Path                                      | Purpose     | Notes                                          |
-| ----------------------------------------- | ----------- | ---------------------------------------------- |
-| `~/.config/claude-code-usage/config.yaml` | Config      | YAML, `gopkg.in/yaml.v3`                       |
-| `~/.cache/claude-code-usage/quota.json`   | Cache       | XDG, configurable via `cache.path`, dir `0700` |
-| `~/.claude/.credentials.json`             | Credentials | Read-only. **Never write to `~/.claude/`.**    |
+| Path                                              | Purpose      | Notes                                                              |
+| ------------------------------------------------- | ------------ | ------------------------------------------------------------------ |
+| `~/.config/claude-code-usage/config.yaml`         | Config       | YAML, `gopkg.in/yaml.v3`. XDG-aware (`XDG_CONFIG_HOME`)            |
+| `~/.config/claude-code-usage/config.default.yaml` | Config (ref) | Read-only reference; install-provisioned, never loaded by the tool |
+| `~/.cache/claude-code-usage/quota.json`           | Cache        | XDG, configurable via `cache.path`, dir `0700`                     |
+| `~/.claude/.credentials.json`                     | Credentials  | Read-only. **Never write to `~/.claude/`.**                        |
 
 ### `--status` JSON API
 
@@ -188,6 +189,7 @@ Semver: `patch` (fixes/refactors), `minor` (features/flags/readers), `major` (br
 ## Important Rules
 
 - **README.md updates are mandatory** whenever a change alters information documented in it (install flags/env vars, usage, CLI options, reader behavior, requirements, `--status` schema, etc.). Update `README.md` in the same change as the implementation — never let it drift from actual behavior.
+- **`config.default.yaml` MUST stay in sync with `config.Default()`/the `Config` struct** on every config change. It is the install-provisioned, read-only reference (`~/.config/claude-code-usage/config.default.yaml`) — the tool never loads it, so any drift silently misleads users. Update it in the same change that touches config keys or defaults.
 - **`install.sh` toggles must expose both a `--flag` and a `CLAUDE_USAGE_*` env var** (e.g. `--statusline`/`CLAUDE_USAGE_STATUSLINE`, `--no-reader`/`CLAUDE_USAGE_READER`). The env var is the only ergonomic toggle through `curl … | bash` (flags require `bash -s -- …`); the flag serves local `./install.sh` runs. Normalize env-var values with a `case` (no bash 4 `,,`) so macOS bash 3.2 keeps working.
 - **Always format Markdown documents when touched.** If no formatting tool is available, say formatting is not possible.
 - **In shell scripts, brace all variable expansions** (`${var}`, not `$var`) — including positionals (`${1}`, `${0}`). The bare special params (`$@`, `$#`, `$?`, `$$`, `$!`, `$*`) may stay unbraced, and escaped literals in output strings (`\$HOME`) must not be braced. `${var}` is POSIX and safe on macOS bash 3.2.

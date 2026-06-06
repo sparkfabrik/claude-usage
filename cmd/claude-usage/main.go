@@ -81,15 +81,47 @@ type StatusResponse struct {
 	Error         string `json:"error,omitempty"`
 }
 
+// printConfigFooter appends the Configuration: block to --help output: the
+// default search chain in literal $XDG_CONFIG_HOME form, the active config
+// (explicit --config path, resolved winner, or built-in defaults), and the
+// reference file path when config.default.yaml exists.
+func printConfigFooter(w io.Writer, explicitConfig string) {
+	fmt.Fprintln(w, "\nConfiguration:")
+	fmt.Fprintln(w, "  Search chain (first existing file wins):")
+	for _, p := range config.SearchChainDisplay() {
+		fmt.Fprintf(w, "    %s\n", p)
+	}
+
+	switch {
+	case explicitConfig != "":
+		fmt.Fprintf(w, "  Active config: %s\n", explicitConfig)
+	default:
+		if active, found := config.ResolvePath(); found {
+			fmt.Fprintf(w, "  Active config: %s\n", active)
+		} else {
+			fmt.Fprintln(w, "  Active config: none — built-in default configuration applied")
+		}
+	}
+
+	if ref, found := config.ReferencePath(); found {
+		fmt.Fprintf(w, "  Reference file: %s\n", ref)
+	}
+}
+
 func main() {
 	showVersion := flag.BoolP("version", "V", false, "Print version information and exit")
 	noPoll := flag.Bool("no-poll", false, "Skip API polling, use cached data only")
 	forcePoll := flag.Bool("force-poll", false, "Force API poll even if cache is fresh")
 	noCost := flag.Bool("no-cost", false, "Hide cost estimates")
 	period := flag.String("period", "", "Show only a specific time period (today, 7d, 30d, all)")
-	configPath := flag.String("config", "", "Path to config file")
+	configPath := flag.StringP("config", "c", "", "Path to config file (overrides the default search chain)")
 	pollOnly := flag.Bool("poll-only", false, "Poll API and update cache, no output (for scripting)")
 	status := flag.Bool("status", false, "Output JSON status for GNOME extension or other consumers")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		flag.PrintDefaults()
+		printConfigFooter(os.Stderr, *configPath)
+	}
 	flag.Parse()
 
 	if *showVersion {

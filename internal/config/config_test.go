@@ -193,3 +193,147 @@ func TestConfigPaths(t *testing.T) {
 		t.Errorf("last path = %q, want config.yaml", paths[len(paths)-1])
 	}
 }
+
+func TestConfigPaths_XDGSet(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/custom/cfg")
+	paths := configPaths()
+	want := filepath.Join("/custom/cfg", "claude-code-usage", "config.yaml")
+	if paths[0] != want {
+		t.Errorf("paths[0] = %q, want %q", paths[0], want)
+	}
+}
+
+func TestConfigPaths_XDGUnset_HomeFallback(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir: %v", err)
+	}
+	paths := configPaths()
+	want := filepath.Join(home, ".config", "claude-code-usage", "config.yaml")
+	if paths[0] != want {
+		t.Errorf("paths[0] = %q, want %q", paths[0], want)
+	}
+}
+
+func TestResolvePath_XDGSet(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "claude-code-usage")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(path, []byte("api:\n  stale_after: 99\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	got, found := ResolvePath()
+	if !found {
+		t.Fatal("expected found=true")
+	}
+	if got != path {
+		t.Errorf("got %q, want %q", got, path)
+	}
+}
+
+func TestResolvePath_FirstMatchWins(t *testing.T) {
+	// XDG-resolved path exists; it must win over ./config.yaml.
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "claude-code-usage")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	xdgPath := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(xdgPath, []byte("api:\n  stale_after: 1\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	got, found := ResolvePath()
+	if !found || got != xdgPath {
+		t.Errorf("got (%q, %v), want (%q, true)", got, found, xdgPath)
+	}
+}
+
+func TestResolvePath_NoConfigFound(t *testing.T) {
+	// Point XDG at an empty dir and run from an empty CWD so neither
+	// chain entry exists.
+	xdgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	got, found := ResolvePath()
+	if found {
+		t.Errorf("expected found=false, got path %q", got)
+	}
+}
+
+func TestLoad_NoConfig_AppliesDefaults(t *testing.T) {
+	xdgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	cfg := Load("")
+	if cfg.API.StaleAfter != 60 {
+		t.Errorf("StaleAfter = %d, want 60 (default)", cfg.API.StaleAfter)
+	}
+}
+
+func TestLoad_XDGResolved(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "claude-code-usage")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(path, []byte("api:\n  stale_after: 42\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	cfg := Load("")
+	if cfg.API.StaleAfter != 42 {
+		t.Errorf("StaleAfter = %d, want 42 (from XDG config)", cfg.API.StaleAfter)
+	}
+}
+
+func TestLoad_ExplicitPathOverridesChain(t *testing.T) {
+	// XDG config exists but explicit path must take precedence.
+	xdgDir := t.TempDir()
+	xdgCfgDir := filepath.Join(xdgDir, "claude-code-usage")
+	if err := os.MkdirAll(xdgCfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(xdgCfgDir, "config.yaml"), []byte("api:\n  stale_after: 1\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	explicitDir := t.TempDir()
+	explicit := filepath.Join(explicitDir, "my.yaml")
+	if err := os.WriteFile(explicit, []byte("api:\n  stale_after: 7\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := Load(explicit)
+	if cfg.API.StaleAfter != 7 {
+		t.Errorf("StaleAfter = %d, want 7 (from explicit path)", cfg.API.StaleAfter)
+	}
+}

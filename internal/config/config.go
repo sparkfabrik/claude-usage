@@ -75,37 +75,94 @@ func Default() *Config {
 	}
 }
 
-// configPaths to search in order.
+// configPaths to search in order. Honors XDG_CONFIG_HOME (falling back to
+// ~/.config), mirroring the XDG_CACHE_HOME pattern in internal/cache.
 func configPaths() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return []string{"config.yaml"}
+	configDir := os.Getenv("XDG_CONFIG_HOME")
+	if configDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			// Home unknown and XDG unset: fall back to CWD only.
+			return []string{"config.yaml"}
+		}
+		configDir = filepath.Join(home, ".config")
 	}
 	return []string{
-		filepath.Join(home, ".config", "claude-code-usage", "config.yaml"),
+		filepath.Join(configDir, "claude-code-usage", "config.yaml"),
 		"config.yaml",
 	}
+}
+
+// configDir returns the XDG-aware config directory
+// (${XDG_CONFIG_HOME:-~/.config}/claude-code-usage) and whether it could be
+// determined. It mirrors the search-chain root used by configPaths.
+func configDir() (string, bool) {
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		configHome = filepath.Join(home, ".config")
+	}
+	return filepath.Join(configHome, "claude-code-usage"), true
+}
+
+// ReferencePath reports the resolved path to the install-provisioned
+// reference file (config.default.yaml) and whether it exists on disk.
+func ReferencePath() (path string, found bool) {
+	dir, ok := configDir()
+	if !ok {
+		return "", false
+	}
+	p := filepath.Join(dir, "config.default.yaml")
+	if _, err := os.Stat(p); err != nil {
+		return "", false
+	}
+	return p, true
+}
+
+// SearchChainDisplay returns the default search chain in portable literal
+// form (using $XDG_CONFIG_HOME), suitable for --help output.
+func SearchChainDisplay() []string {
+	return []string{
+		filepath.Join("$XDG_CONFIG_HOME", "claude-code-usage", "config.yaml") + "  (falls back to ~/.config when unset)",
+		"./config.yaml",
+	}
+}
+
+// ResolvePath reports which file in the default search chain is selected.
+// It returns the first existing file (found=true) or ("", false) when no
+// file in the chain exists. Used by Load and by --help so the resolution
+// logic is not duplicated.
+func ResolvePath() (path string, found bool) {
+	for _, p := range configPaths() {
+		if _, err := os.Stat(p); err == nil {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 // Load reads config from YAML file. Falls back to defaults.
 func Load(path string) *Config {
 	cfg := Default()
 
-	paths := configPaths()
-	if path != "" {
-		paths = []string{path}
+	if path == "" {
+		resolved, found := ResolvePath()
+		if !found {
+			return cfg
+		}
+		path = resolved
 	}
 
-	for _, p := range paths {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		// Unmarshal over defaults — only overrides what's present
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: config parse error in %s: %v\n", p, err)
-		}
-		break
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return cfg
+	}
+	// Unmarshal over defaults — only overrides what's present
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: config parse error in %s: %v\n", path, err)
 	}
 
 	return cfg
