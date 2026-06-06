@@ -137,7 +137,9 @@ func SearchChainDisplay() []string {
 // logic is not duplicated.
 func ResolvePath() (path string, found bool) {
 	for _, p := range configPaths() {
-		if _, err := os.Stat(p); err == nil {
+		// Only a regular file counts as a match; a directory or special
+		// file must not "win" the chain and shadow later entries.
+		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
 			return p, true
 		}
 	}

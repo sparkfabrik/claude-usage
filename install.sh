@@ -511,8 +511,8 @@ CFG_REF_URL="https://raw.githubusercontent.com/${REPO}/${CLAUDE_USAGE_VERSION}/c
 if download "${CFG_REF_URL}" "${CFG_REF}"; then
   changed "reference config written to ${CFG_REF}"
   echo ""
-  echo "NOTE: ${CFG_REF} is a read-only reference; the tool never reads it."
-  echo "  To customize, copy it to a config the tool loads:"
+  echo "NOTE: ${CFG_REF} is a reference only — the tool never reads it, and"
+  echo "  every install/upgrade overwrites it. Do not edit it; copy it to customize:"
   echo "    cp \"${CFG_REF}\" \"${CFG_DIR}/config.yaml\""
   echo ""
 else

@@ -194,9 +194,10 @@ The config file is **optional** — `claude-usage` runs fully on built-in defaul
 Override the chain entirely with `--config <path>` / `-c <path>`. Run `claude-usage --help`
 to see the search chain, the active config, and the reference-file path.
 
-**Reference file:** the installer provisions a read-only, version-matched
+**Reference file:** the installer provisions a version-matched
 `config.default.yaml` alongside your config dir
-(`~/.config/claude-code-usage/config.default.yaml`). The tool never loads it — copy it to
+(`~/.config/claude-code-usage/config.default.yaml`), overwritten on every
+install/upgrade. The tool never loads it — don't edit it; copy it to
 `config.yaml` to start customizing:
 
 ```bash

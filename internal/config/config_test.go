@@ -274,6 +274,37 @@ func TestResolvePath_FirstMatchWins(t *testing.T) {
 	}
 }
 
+func TestResolvePath_SkipsDirectory(t *testing.T) {
+	// A directory named config.yaml at the XDG path must not win the chain;
+	// resolution falls through to ./config.yaml.
+	xdgDir := t.TempDir()
+	cfgDir := filepath.Join(xdgDir, "claude-code-usage")
+	if err := os.MkdirAll(filepath.Join(cfgDir, "config.yaml"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	// Run from a CWD that has a real ./config.yaml file.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	work := t.TempDir()
+	local := filepath.Join(work, "config.yaml")
+	if err := os.WriteFile(local, []byte("api:\n  enabled: true\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chdir(work); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	got, found := ResolvePath()
+	if !found || got != "config.yaml" {
+		t.Errorf("got (%q, %v), want (config.yaml, true) — directory should be skipped", got, found)
+	}
+}
+
 func TestResolvePath_NoConfigFound(t *testing.T) {
 	// Point XDG at an empty dir and run from an empty CWD so neither
 	// chain entry exists.
