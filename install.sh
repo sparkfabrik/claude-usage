@@ -97,6 +97,19 @@ verify_checksum() {
   fi
 }
 
+# Create/refresh a symlink, reporting CHANGED only when the link target
+# actually changes. Keeps reruns idempotent in output, not just on disk —
+# `ln -sfn` always succeeds, so an unconditional `changed` lies on every rerun.
+#   ${1} = target   ${2} = link path   ${3} = change description
+relink() {
+  local target="${1}" link="${2}" desc="${3}"
+  if [ "$(readlink "${link}" 2>/dev/null)" = "${target}" ]; then
+    return 0
+  fi
+  ln -sfn "${target}" "${link}"
+  changed "${desc}"
+}
+
 # --- Argument parsing -----------------------------------------------------
 # These toggles gate wiring, not provisioning: reader and statusline files are
 # always placed on disk and symlinked; only the settings.json registration
@@ -444,8 +457,7 @@ PYEOF_HOOKS
   gnome)
     EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
     mkdir -p "$(dirname "${EXT_DIR}")"
-    ln -sfn "${INSTALL_DIR}/readers/gnome-shell-extension" "${EXT_DIR}"
-    changed "GNOME extension installed"
+    relink "${INSTALL_DIR}/readers/gnome-shell-extension" "${EXT_DIR}" "GNOME extension installed"
     echo ""
     echo "GNOME extension installed! Enable with:"
     echo "  gnome-extensions enable claude-usage@claude-code-usage"
@@ -470,8 +482,7 @@ PYEOF_HOOKS
     fi
     ;;
   waybar)
-    ln -sf "${INSTALL_DIR}/readers/waybar/claude-usage-waybar.sh" "${BIN_DIR}/claude-usage-waybar.sh"
-    changed "Waybar reader installed"
+    relink "${INSTALL_DIR}/readers/waybar/claude-usage-waybar.sh" "${BIN_DIR}/claude-usage-waybar.sh" "Waybar reader installed"
     echo ""
     echo "Waybar module installed! Add to your Waybar config:"
     echo ""
