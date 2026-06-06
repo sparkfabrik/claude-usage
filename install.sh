@@ -73,8 +73,9 @@ download() {
 }
 
 # --- Argument parsing -----------------------------------------------------
-# Statusline registration is opt-in: the reader is always provisioned on disk
-# and symlinked, but ~/.claude/settings.json is only mutated when requested.
+# These toggles gate wiring, not provisioning: reader and statusline files are
+# always placed on disk and symlinked; only the settings.json registration
+# (statusline) and the desktop reader wiring (--no-reader) are gated here.
 INSTALL_STATUSLINE="${CLAUDE_USAGE_STATUSLINE:-0}"
 INSTALL_READER="${CLAUDE_USAGE_READER:-1}"
 UNINSTALL=false
