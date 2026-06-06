@@ -90,7 +90,9 @@ verify_checksum() {
   local file="${1}" name="${2}" want got
   # checksums.txt format: "<hash>  <name>"; anchor on the trailing name.
   want=$(awk -v n="${name}" '$2 == n {print $1}' "${TMP_DIR}/checksums.txt")
-  [ -n "${want}" ] || die "No checksum entry for ${name} in checksums.txt"
+  [ -n "${want}" ] || die "No checksum entry for ${name} in checksums.txt. \
+This release may predate checksum coverage for it — install a newer version, \
+or run that tag's own install.sh asset (CLAUDE_USAGE_VERSION=${CLAUDE_USAGE_VERSION})."
   got=$(sha256_of "${file}")
   if [ "${want}" != "${got}" ]; then
     die "Checksum mismatch for ${name}: expected ${want}, got ${got}"
@@ -106,7 +108,7 @@ relink() {
   if [ "$(readlink "${link}" 2>/dev/null)" = "${target}" ]; then
     return 0
   fi
-  ln -sfn "${target}" "${link}"
+  ln -sfn "${target}" "${link}" || die "Failed to create symlink ${link} -> ${target}"
   changed "${desc}"
 }
 

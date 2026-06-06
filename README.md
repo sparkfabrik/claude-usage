@@ -104,13 +104,18 @@ TAG=v1.0.0   # or the tag you want
 base="https://github.com/sparkfabrik/claude-usage/releases/download/${TAG}"
 curl -fsSLO "${base}/install.sh"
 curl -fsSLO "${base}/checksums.txt"
-# Linux: sha256sum --ignore-missing -c checksums.txt
-# macOS: shasum -a 256 --ignore-missing -c checksums.txt
-sha256sum --ignore-missing -c checksums.txt   # expect: install.sh: OK
+# Linux ships sha256sum, macOS ships shasum — use whichever exists:
+if command -v sha256sum >/dev/null; then
+  sha256sum --ignore-missing -c checksums.txt   # expect: install.sh: OK
+else
+  shasum -a 256 --ignore-missing -c checksums.txt
+fi
 bash install.sh
 ```
 
 `install.sh`, the CLI/tray binaries, and `claude-usage-readers.tar.gz` all have entries in `checksums.txt`.
+
+> **Trust model:** verification roots trust in HTTPS and GitHub Releases — `checksums.txt` is fetched over TLS but is not independently signed (no GPG/cosign). This protects against accidental corruption and a tampered mirror, but not against an attacker who can replace both the artifacts and `checksums.txt` at the source. Checksums for releases predating this feature only cover the CLI/tray binaries.
 
 ### What the installer does
 
