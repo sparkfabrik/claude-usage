@@ -78,12 +78,12 @@ curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/insta
 
 ### Options
 
-| Flag / env var               | Default | Effect                                                                                              |
-| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
-| `--statusline` / `CLAUDE_USAGE_STATUSLINE=1` | off | Register the Claude Code statusLine in `~/.claude/settings.json` (opt-in).                           |
-| `--no-reader` / `CLAUDE_USAGE_READER=0`      | reader on | Skip wiring the desktop reader. Reader files are still placed on disk; only the wiring is skipped.   |
-| `CLAUDE_USAGE_VERSION=<tag>`                 | latest  | Pin a specific release.                                                                              |
-| `INSTALL_DIR=<path>`                         | `~/.local/share/claude-usage` | Override the installation directory.                                              |
+| Flag / env var                               | Default                       | Effect                                                                                             |
+| -------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| `--statusline` / `CLAUDE_USAGE_STATUSLINE=1` | off                           | Register the Claude Code statusLine in `~/.claude/settings.json` (opt-in).                         |
+| `--no-reader` / `CLAUDE_USAGE_READER=0`      | reader on                     | Skip wiring the desktop reader. Reader files are still placed on disk; only the wiring is skipped. |
+| `CLAUDE_USAGE_VERSION=<tag>`                 | latest                        | Pin a specific release.                                                                            |
+| `INSTALL_DIR=<path>`                         | `~/.local/share/claude-usage` | Override the installation directory.                                                               |
 
 ```bash
 # Enable the Claude Code statusline as well as the desktop reader
