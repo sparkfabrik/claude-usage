@@ -5,11 +5,20 @@
 #   curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | bash
 #   curl -fsSL ... | CLAUDE_USAGE_VERSION=v1.0.0 bash
 #   INSTALL_DIR=/custom/path ./install.sh
+#   ./install.sh --statusline          # opt in to Claude Code statusline
+#   CLAUDE_USAGE_STATUSLINE=1 ./install.sh
+#   ./install.sh --no-reader           # opt out of desktop reader wiring
+#   CLAUDE_USAGE_READER=0 ./install.sh
 #   ./install.sh --uninstall
 #
 # Environment variables:
-#   CLAUDE_USAGE_VERSION  — Version tag to install (default: latest release)
-#   INSTALL_DIR           — Installation directory (default: ~/.local/share/claude-usage)
+#   CLAUDE_USAGE_VERSION     — Version tag to install (default: latest release)
+#   INSTALL_DIR              — Installation directory (default: ~/.local/share/claude-usage)
+#   CLAUDE_USAGE_STATUSLINE  — Set to 1 to register the Claude Code statusLine
+#                              in ~/.claude/settings.json (default: off; opt-in)
+#   CLAUDE_USAGE_READER      — Set to 0 to skip desktop reader wiring (GNOME/KDE/
+#                              Waybar/macOS tray). Reader files are still placed
+#                              on disk; only the wiring is skipped (default: on)
 #
 # Output protocol (for Ansible integration):
 #   CHANGED: <description>  — printed for each mutation
@@ -18,8 +27,8 @@
 #
 set -euo pipefail
 
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/share/claude-usage}"
-BIN_DIR="$HOME/.local/bin"
+INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/share/claude-usage}"
+BIN_DIR="${HOME}/.local/bin"
 REPO="sparkfabrik/claude-usage"
 PLATFORM="$(uname -s)"    # Darwin or Linux
 ARCH="$(uname -m)"        # x86_64 or arm64/aarch64
@@ -27,54 +36,78 @@ CHANGED=0
 
 # --- Helpers --------------------------------------------------------------
 changed() {
-  echo "CHANGED: $1"
+  echo "CHANGED: ${1}"
   CHANGED=1
 }
 
 die() {
-  echo "ERROR: $1" >&2
+  echo "ERROR: ${1}" >&2
   exit 1
 }
 
 # Normalize arch to goreleaser naming
-case "$ARCH" in
+case "${ARCH}" in
   x86_64)  ARCH="amd64" ;;
   aarch64) ARCH="arm64" ;;
   arm64)   ARCH="arm64" ;;
-  *)       die "Unsupported architecture: $ARCH" ;;
+  *)       die "Unsupported architecture: ${ARCH}" ;;
 esac
 
 # Normalize OS to goreleaser naming
-case "$PLATFORM" in
+case "${PLATFORM}" in
   Darwin) OS="darwin" ;;
   Linux)  OS="linux" ;;
-  *)      die "Unsupported OS: $PLATFORM" ;;
+  *)      die "Unsupported OS: ${PLATFORM}" ;;
 esac
 
 # Download helper (curl preferred, wget fallback)
 download() {
-  local url="$1" dest="$2"
+  local url="${1}" dest="${2}"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$dest" "$url"
+    curl -fsSL -o "${dest}" "${url}"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$dest" "$url"
+    wget -qO "${dest}" "${url}"
   else
     die "Neither curl nor wget found. Install one and retry."
   fi
 }
 
+# --- Argument parsing -----------------------------------------------------
+# These toggles gate wiring, not provisioning: reader and statusline files are
+# always placed on disk and symlinked; only the settings.json registration
+# (statusline) and the desktop reader wiring (--no-reader) are gated here.
+INSTALL_STATUSLINE="${CLAUDE_USAGE_STATUSLINE:-0}"
+INSTALL_READER="${CLAUDE_USAGE_READER:-1}"
+UNINSTALL=false
+for arg in "$@"; do
+  case "${arg}" in
+    --uninstall)  UNINSTALL=true ;;
+    --statusline) INSTALL_STATUSLINE=1 ;;
+    --no-reader)  INSTALL_READER=0 ;;
+    *)            die "Unknown argument: ${arg}" ;;
+  esac
+done
+case "${INSTALL_STATUSLINE}" in
+  1|true|TRUE|yes|YES|on|ON) INSTALL_STATUSLINE=1 ;;
+  *)                         INSTALL_STATUSLINE=0 ;;
+esac
+case "${INSTALL_READER}" in
+  0|false|FALSE|no|NO|off|OFF) INSTALL_READER=0 ;;
+  *)                           INSTALL_READER=1 ;;
+esac
+
 # --- Uninstall ------------------------------------------------------------
-if [[ "${1:-}" == "--uninstall" ]]; then
+if [ "${UNINSTALL}" = true ]; then
   # Remove symlinks
-  rm -f "$BIN_DIR/claude-usage"
-  rm -f "$BIN_DIR/claude-usage-tray"
-  rm -f "$BIN_DIR/claude-usage-waybar.sh"
-  rm -f "$BIN_DIR/claude-usage-statusline.sh"
+  rm -f "${BIN_DIR}/claude-usage"
+  rm -f "${BIN_DIR}/claude-usage-tray"
+  rm -f "${BIN_DIR}/claude-usage-waybar.sh"
+  rm -f "${BIN_DIR}/claude-usage-statusline.sh"
 
   # Remove statusLine from Claude Code settings
-  SETTINGS="$HOME/.claude/settings.json"
-  if [ -f "$SETTINGS" ] && grep -q "claude-usage-statusline" "$SETTINGS" 2>/dev/null; then
-    python3 - "$SETTINGS" <<'PYEOF2'
+  SETTINGS="${HOME}/.claude/settings.json"
+  if [ -f "${SETTINGS}" ] && grep -q "claude-usage-statusline" "${SETTINGS}" 2>/dev/null; then
+    python3 - "${SETTINGS}" <<'PYEOF2'
 import json, sys
 path = sys.argv[1]
 with open(path) as f:
@@ -85,13 +118,13 @@ with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 PYEOF2
-    changed "statusLine removed from $SETTINGS"
+    changed "statusLine removed from ${SETTINGS}"
   fi
 
   # Remove session hooks from settings.json
-  HOOKS_DIR="$INSTALL_DIR/hooks"
-  if [ -f "$SETTINGS" ] && grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
-    if python3 - "$SETTINGS" "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh" <<'PYEOF_UNHOOK'
+  HOOKS_DIR="${INSTALL_DIR}/hooks"
+  if [ -f "${SETTINGS}" ] && grep -q "${HOOKS_DIR}/start.sh" "${SETTINGS}" 2>/dev/null; then
+    if python3 - "${SETTINGS}" "${HOOKS_DIR}/start.sh" "${HOOKS_DIR}/stop.sh" <<'PYEOF_UNHOOK'
 import json, sys
 
 path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -123,9 +156,9 @@ with open(path, "w") as f:
     f.write("\n")
 PYEOF_UNHOOK
     then
-      changed "session hooks removed from $SETTINGS"
+      changed "session hooks removed from ${SETTINGS}"
     else
-      echo "WARNING: could not update $SETTINGS (invalid JSON?); skipping hook removal"
+      echo "WARNING: could not update ${SETTINGS} (invalid JSON?); skipping hook removal"
     fi
   fi
 
@@ -134,9 +167,9 @@ PYEOF_UNHOOK
   rm -rf /tmp/claude-usage-sessions 2>/dev/null || true
 
   # Remove GNOME extension symlink
-  EXT_DIR="$HOME/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
-  if [ -L "$EXT_DIR" ]; then
-    rm -f "$EXT_DIR"
+  EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
+  if [ -L "${EXT_DIR}" ]; then
+    rm -f "${EXT_DIR}"
     changed "GNOME extension symlink removed"
   fi
 
@@ -148,24 +181,24 @@ PYEOF_UNHOOK
   fi
 
   # Waybar hint
-  if [ "$PLATFORM" != "Darwin" ] && command -v waybar >/dev/null 2>&1; then
-    WAYBAR_CFG="${XDG_CONFIG_HOME:-$HOME/.config}/waybar/config"
-    [ ! -f "$WAYBAR_CFG" ] && WAYBAR_CFG="${XDG_CONFIG_HOME:-$HOME/.config}/waybar/config.jsonc"
-    if [ -f "$WAYBAR_CFG" ] && grep -q "claude-usage" "$WAYBAR_CFG" 2>/dev/null; then
+  if [ "${PLATFORM}" != "Darwin" ] && command -v waybar >/dev/null 2>&1; then
+    WAYBAR_CFG="${XDG_CONFIG_HOME:-${HOME}/.config}/waybar/config"
+    [ ! -f "${WAYBAR_CFG}" ] && WAYBAR_CFG="${XDG_CONFIG_HOME:-${HOME}/.config}/waybar/config.jsonc"
+    if [ -f "${WAYBAR_CFG}" ] && grep -q "claude-usage" "${WAYBAR_CFG}" 2>/dev/null; then
       echo ""
       echo "NOTE: Remove 'custom/claude-usage' from your Waybar config manually:"
-      echo "  $WAYBAR_CFG"
+      echo "  ${WAYBAR_CFG}"
       echo ""
     fi
   fi
 
   # Remove install directory
-  if [ -d "$INSTALL_DIR" ]; then
-    rm -rf "$INSTALL_DIR"
-    changed "removed $INSTALL_DIR"
+  if [ -d "${INSTALL_DIR}" ]; then
+    rm -rf "${INSTALL_DIR}"
+    changed "removed ${INSTALL_DIR}"
   fi
 
-  if [ "$CHANGED" -eq 0 ]; then
+  if [ "${CHANGED}" -eq 0 ]; then
     echo "OK: nothing to uninstall"
   else
     echo "claude-usage uninstalled."
@@ -175,16 +208,16 @@ fi
 
 # --- Version resolution ---------------------------------------------------
 if [ -z "${CLAUDE_USAGE_VERSION:-}" ]; then
-  CLAUDE_USAGE_VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+  CLAUDE_USAGE_VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
     | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/') \
     || die "Failed to fetch latest release. Set CLAUDE_USAGE_VERSION manually."
-  [ -z "$CLAUDE_USAGE_VERSION" ] && die "Could not determine latest version. Set CLAUDE_USAGE_VERSION manually."
+  [ -z "${CLAUDE_USAGE_VERSION}" ] && die "Could not determine latest version. Set CLAUDE_USAGE_VERSION manually."
 fi
 
 # --- Version skip check ---------------------------------------------------
 CURRENT_VERSION=""
-if [ -f "$INSTALL_DIR/.version" ]; then
-  CURRENT_VERSION=$(cat "$INSTALL_DIR/.version")
+if [ -f "${INSTALL_DIR}/.version" ]; then
+  CURRENT_VERSION=$(cat "${INSTALL_DIR}/.version")
 fi
 
 # --- Download binaries ----------------------------------------------------
@@ -192,57 +225,57 @@ fi
 # artifacts are actually present. Keying on .version alone would treat a
 # hand-deleted binary or readers dir as up-to-date and never repair it.
 SKIP_DOWNLOAD=false
-if [ "$CURRENT_VERSION" = "$CLAUDE_USAGE_VERSION" ] \
-   && [ -x "$INSTALL_DIR/bin/claude-usage" ] \
-   && { [ "$OS" != "darwin" ] || [ -x "$INSTALL_DIR/bin/claude-usage-tray" ]; } \
-   && [ -d "$INSTALL_DIR/readers" ]; then
+if [ "${CURRENT_VERSION}" = "${CLAUDE_USAGE_VERSION}" ] \
+   && [ -x "${INSTALL_DIR}/bin/claude-usage" ] \
+   && { [ "${OS}" != "darwin" ] || [ -x "${INSTALL_DIR}/bin/claude-usage-tray" ]; } \
+   && [ -d "${INSTALL_DIR}/readers" ]; then
   SKIP_DOWNLOAD=true
 fi
 
-if [ "$SKIP_DOWNLOAD" = false ]; then
-RELEASE_URL="https://github.com/$REPO/releases/download/$CLAUDE_USAGE_VERSION"
+if [ "${SKIP_DOWNLOAD}" = false ]; then
+RELEASE_URL="https://github.com/${REPO}/releases/download/${CLAUDE_USAGE_VERSION}"
 TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "${TMP_DIR}"' EXIT
 
 # CLI binary
 BINARY_NAME="claude-usage_${OS}_${ARCH}"
-download "$RELEASE_URL/$BINARY_NAME" "$TMP_DIR/claude-usage" \
-  || die "Failed to download CLI binary: $RELEASE_URL/$BINARY_NAME"
+download "${RELEASE_URL}/${BINARY_NAME}" "${TMP_DIR}/claude-usage" \
+  || die "Failed to download CLI binary: ${RELEASE_URL}/${BINARY_NAME}"
 
 # macOS tray binary
-if [ "$OS" = "darwin" ]; then
+if [ "${OS}" = "darwin" ]; then
   TRAY_NAME="claude-usage-tray_${OS}_${ARCH}"
-  download "$RELEASE_URL/$TRAY_NAME" "$TMP_DIR/claude-usage-tray" \
-    || die "Failed to download tray binary: $RELEASE_URL/$TRAY_NAME"
+  download "${RELEASE_URL}/${TRAY_NAME}" "${TMP_DIR}/claude-usage-tray" \
+    || die "Failed to download tray binary: ${RELEASE_URL}/${TRAY_NAME}"
 fi
 
 # Readers archive
-download "$RELEASE_URL/claude-usage-readers.tar.gz" "$TMP_DIR/readers.tar.gz" \
+download "${RELEASE_URL}/claude-usage-readers.tar.gz" "${TMP_DIR}/readers.tar.gz" \
   || die "Failed to download readers archive"
 
 # --- Install binaries -----------------------------------------------------
-mkdir -p "$INSTALL_DIR/bin"
-mv "$TMP_DIR/claude-usage" "$INSTALL_DIR/bin/claude-usage"
-chmod +x "$INSTALL_DIR/bin/claude-usage"
+mkdir -p "${INSTALL_DIR}/bin"
+mv "${TMP_DIR}/claude-usage" "${INSTALL_DIR}/bin/claude-usage"
+chmod +x "${INSTALL_DIR}/bin/claude-usage"
 
-if [ "$OS" = "darwin" ]; then
-  mv "$TMP_DIR/claude-usage-tray" "$INSTALL_DIR/bin/claude-usage-tray"
-  chmod +x "$INSTALL_DIR/bin/claude-usage-tray"
+if [ "${OS}" = "darwin" ]; then
+  mv "${TMP_DIR}/claude-usage-tray" "${INSTALL_DIR}/bin/claude-usage-tray"
+  chmod +x "${INSTALL_DIR}/bin/claude-usage-tray"
 fi
 
-changed "installed binaries ($CLAUDE_USAGE_VERSION)"
+changed "installed binaries (${CLAUDE_USAGE_VERSION})"
 
 # --- Install readers ------------------------------------------------------
-mkdir -p "$INSTALL_DIR/readers"
-tar xzf "$TMP_DIR/readers.tar.gz" -C "$INSTALL_DIR/readers"
-chmod +x "$INSTALL_DIR/readers/waybar/claude-usage-waybar.sh" 2>/dev/null || true
+mkdir -p "${INSTALL_DIR}/readers"
+tar xzf "${TMP_DIR}/readers.tar.gz" -C "${INSTALL_DIR}/readers"
+chmod +x "${INSTALL_DIR}/readers/waybar/claude-usage-waybar.sh" 2>/dev/null || true
 
 # PATH warning
-case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
+case ":${PATH}:" in
+  *":${BIN_DIR}:"*) ;;
   *)
     echo ""
-    echo "WARNING: $BIN_DIR is not in your PATH."
+    echo "WARNING: ${BIN_DIR} is not in your PATH."
     echo "Add this to your shell profile:"
     echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
     echo ""
@@ -254,18 +287,27 @@ fi
 # --- Create symlinks ------------------------------------------------------
 # Always (re)create core symlinks, even on the skip-download fast path, so a
 # hand-deleted symlink is repaired on rerun. ln -sf is idempotent.
-mkdir -p "$BIN_DIR"
-ln -sf "$INSTALL_DIR/bin/claude-usage" "$BIN_DIR/claude-usage"
+mkdir -p "${BIN_DIR}"
+ln -sf "${INSTALL_DIR}/bin/claude-usage" "${BIN_DIR}/claude-usage"
 
-if [ "$OS" = "darwin" ]; then
-  ln -sf "$INSTALL_DIR/bin/claude-usage-tray" "$BIN_DIR/claude-usage-tray"
+if [ "${OS}" = "darwin" ]; then
+  ln -sf "${INSTALL_DIR}/bin/claude-usage-tray" "${BIN_DIR}/claude-usage-tray"
 fi
 
 # --- Reader detection and install -----------------------------------------
+# The desktop reader is auto-selected from the running environment and wired up
+# by default. --no-reader (or CLAUDE_USAGE_READER=0) skips the wiring; reader
+# files remain on disk under ${INSTALL_DIR}/readers either way.
+SETTINGS="${HOME}/.claude/settings.json"
 READER="none"
-SETTINGS="$HOME/.claude/settings.json"
 
-if [ "$OS" = "darwin" ]; then
+if [ "${INSTALL_READER}" = "0" ]; then
+  READER="skipped"
+  echo ""
+  echo "NOTE: desktop reader wiring skipped (--no-reader)."
+  echo "  Reader files are available under ${INSTALL_DIR}/readers/"
+  echo ""
+elif [ "${OS}" = "darwin" ]; then
   READER="macos"
 elif command -v gnome-shell >/dev/null 2>&1; then
   READER="gnome"
@@ -275,39 +317,39 @@ elif command -v waybar >/dev/null 2>&1; then
   READER="waybar"
 fi
 
-case "$READER" in
+case "${READER}" in
   macos)
     # Tray already installed above; register session hooks
-    HOOKS_DIR="$INSTALL_DIR/hooks"
-    HOOKS_SRC="$INSTALL_DIR/readers/hooks"
-    mkdir -p "$HOOKS_DIR"
-    if [ -d "$HOOKS_SRC" ]; then
-      cp "$HOOKS_SRC/start.sh" "$HOOKS_DIR/start.sh"
-      cp "$HOOKS_SRC/stop.sh" "$HOOKS_DIR/stop.sh"
-      chmod +x "$HOOKS_DIR/start.sh" "$HOOKS_DIR/stop.sh"
+    HOOKS_DIR="${INSTALL_DIR}/hooks"
+    HOOKS_SRC="${INSTALL_DIR}/readers/hooks"
+    mkdir -p "${HOOKS_DIR}"
+    if [ -d "${HOOKS_SRC}" ]; then
+      cp "${HOOKS_SRC}/start.sh" "${HOOKS_DIR}/start.sh"
+      cp "${HOOKS_SRC}/stop.sh" "${HOOKS_DIR}/stop.sh"
+      chmod +x "${HOOKS_DIR}/start.sh" "${HOOKS_DIR}/stop.sh"
     else
-      echo "WARNING: hooks source not found at $HOOKS_SRC"
-      echo "  Contents of $INSTALL_DIR/readers/:"
-      ls "$INSTALL_DIR/readers/" 2>&1 || true
+      echo "WARNING: hooks source not found at ${HOOKS_SRC}"
+      echo "  Contents of ${INSTALL_DIR}/readers/:"
+      ls "${INSTALL_DIR}/readers/" 2>&1 || true
     fi
 
     # Register hooks in ~/.claude/settings.json (if hook scripts exist)
-    START_CMD="$HOOKS_DIR/start.sh"
-    STOP_CMD="$HOOKS_DIR/stop.sh"
+    START_CMD="${HOOKS_DIR}/start.sh"
+    STOP_CMD="${HOOKS_DIR}/stop.sh"
 
-    if [ -x "$START_CMD" ] && [ -x "$STOP_CMD" ]; then
+    if [ -x "${START_CMD}" ] && [ -x "${STOP_CMD}" ]; then
       HOOKS_NEEDED=false
 
-      if [ ! -f "$SETTINGS" ]; then
-        mkdir -p "$(dirname "$SETTINGS")"
-        echo '{}' > "$SETTINGS"
+      if [ ! -f "${SETTINGS}" ]; then
+        mkdir -p "$(dirname "${SETTINGS}")"
+        echo '{}' > "${SETTINGS}"
         HOOKS_NEEDED=true
-      elif ! grep -q "$HOOKS_DIR/start.sh" "$SETTINGS" 2>/dev/null; then
+      elif ! grep -q "${HOOKS_DIR}/start.sh" "${SETTINGS}" 2>/dev/null; then
         HOOKS_NEEDED=true
       fi
 
-      if [ "$HOOKS_NEEDED" = true ]; then
-        if python3 - "$SETTINGS" "$START_CMD" "$STOP_CMD" <<'PYEOF_HOOKS'
+      if [ "${HOOKS_NEEDED}" = true ]; then
+        if python3 - "${SETTINGS}" "${START_CMD}" "${STOP_CMD}" <<'PYEOF_HOOKS'
 import json, sys
 
 path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -347,7 +389,7 @@ PYEOF_HOOKS
         then
           changed "session hooks registered"
         else
-          echo "WARNING: could not register session hooks in $SETTINGS (invalid JSON?); tray auto-start/stop disabled"
+          echo "WARNING: could not register session hooks in ${SETTINGS} (invalid JSON?); tray auto-start/stop disabled"
         fi
       fi
     fi
@@ -359,9 +401,9 @@ PYEOF_HOOKS
     echo ""
     ;;
   gnome)
-    EXT_DIR="$HOME/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
-    mkdir -p "$(dirname "$EXT_DIR")"
-    ln -sfn "$INSTALL_DIR/readers/gnome-shell-extension" "$EXT_DIR"
+    EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"
+    mkdir -p "$(dirname "${EXT_DIR}")"
+    ln -sfn "${INSTALL_DIR}/readers/gnome-shell-extension" "${EXT_DIR}"
     changed "GNOME extension installed"
     echo ""
     echo "GNOME extension installed! Enable with:"
@@ -369,12 +411,12 @@ PYEOF_HOOKS
     echo ""
     ;;
   kde)
-    PLASMOID_DIR="$INSTALL_DIR/readers/kde-plasmoid"
+    PLASMOID_DIR="${INSTALL_DIR}/readers/kde-plasmoid"
     if command -v kpackagetool6 >/dev/null 2>&1; then
       if kpackagetool6 --type Plasma/Applet --show org.kde.plasma.claude-usage >/dev/null 2>&1; then
-        kpackagetool6 --type Plasma/Applet --upgrade "$PLASMOID_DIR" 2>/dev/null && changed "KDE plasmoid upgraded"
+        kpackagetool6 --type Plasma/Applet --upgrade "${PLASMOID_DIR}" 2>/dev/null && changed "KDE plasmoid upgraded"
       else
-        kpackagetool6 --type Plasma/Applet --install "$PLASMOID_DIR" && changed "KDE plasmoid installed"
+        kpackagetool6 --type Plasma/Applet --install "${PLASMOID_DIR}" && changed "KDE plasmoid installed"
       fi
       echo ""
       echo "KDE plasmoid installed! Add 'Claude Usage' widget to your panel."
@@ -382,18 +424,18 @@ PYEOF_HOOKS
     else
       echo ""
       echo "KDE detected but kpackagetool6 not found."
-      echo "Install plasmoid manually from: $PLASMOID_DIR"
+      echo "Install plasmoid manually from: ${PLASMOID_DIR}"
       echo ""
     fi
     ;;
   waybar)
-    ln -sf "$INSTALL_DIR/readers/waybar/claude-usage-waybar.sh" "$BIN_DIR/claude-usage-waybar.sh"
+    ln -sf "${INSTALL_DIR}/readers/waybar/claude-usage-waybar.sh" "${BIN_DIR}/claude-usage-waybar.sh"
     changed "Waybar reader installed"
     echo ""
     echo "Waybar module installed! Add to your Waybar config:"
     echo ""
     echo '  "custom/claude-usage": {'
-    echo "      \"exec\": \"$BIN_DIR/claude-usage-waybar.sh\","
+    echo "      \"exec\": \"${BIN_DIR}/claude-usage-waybar.sh\","
     echo '      "return-type": "json",'
     echo '      "interval": 60'
     echo '  }'
@@ -408,24 +450,24 @@ PYEOF_HOOKS
 esac
 
 # --- Claude Code statusline ------------------------------------------------
-STATUSLINE_SCRIPT="$INSTALL_DIR/readers/statusline/claude-usage-statusline.sh"
-SETTINGS="$HOME/.claude/settings.json"
-ln -sf "$STATUSLINE_SCRIPT" "$BIN_DIR/claude-usage-statusline.sh"
+STATUSLINE_SCRIPT="${INSTALL_DIR}/readers/statusline/claude-usage-statusline.sh"
+SETTINGS="${HOME}/.claude/settings.json"
+ln -sf "${STATUSLINE_SCRIPT}" "${BIN_DIR}/claude-usage-statusline.sh"
 
-if [ -f "$STATUSLINE_SCRIPT" ]; then
-  STATUSLINE_CMD="bash $BIN_DIR/claude-usage-statusline.sh"
+if [ "${INSTALL_STATUSLINE}" = "1" ] && [ -f "${STATUSLINE_SCRIPT}" ]; then
+  STATUSLINE_CMD="bash ${BIN_DIR}/claude-usage-statusline.sh"
   STATUSLINE_NEEDED=false
 
-  if [ ! -f "$SETTINGS" ]; then
-    mkdir -p "$(dirname "$SETTINGS")"
-    echo '{}' > "$SETTINGS"
+  if [ ! -f "${SETTINGS}" ]; then
+    mkdir -p "$(dirname "${SETTINGS}")"
+    echo '{}' > "${SETTINGS}"
     STATUSLINE_NEEDED=true
-  elif ! grep -q "claude-usage-statusline" "$SETTINGS" 2>/dev/null; then
+  elif ! grep -q "claude-usage-statusline" "${SETTINGS}" 2>/dev/null; then
     STATUSLINE_NEEDED=true
   fi
 
-  if [ "$STATUSLINE_NEEDED" = true ]; then
-    python3 - "$SETTINGS" "$STATUSLINE_CMD" <<'PYEOF2'
+  if [ "${STATUSLINE_NEEDED}" = true ]; then
+    python3 - "${SETTINGS}" "${STATUSLINE_CMD}" <<'PYEOF2'
 import json, sys
 
 path, cmd = sys.argv[1], sys.argv[2]
@@ -438,15 +480,23 @@ with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 PYEOF2
-    changed "statusLine registered in $SETTINGS"
+    changed "statusLine registered in ${SETTINGS}"
   fi
+elif [ -f "${STATUSLINE_SCRIPT}" ]; then
+  echo ""
+  echo "NOTE: Claude Code statusline reader is installed but not enabled."
+  echo "  Script symlinked at: ${BIN_DIR}/claude-usage-statusline.sh"
+  echo "  Enable it by re-running with --statusline (or CLAUDE_USAGE_STATUSLINE=1),"
+  echo "  or add this to ~/.claude/settings.json manually:"
+  echo "    \"statusLine\": { \"type\": \"command\", \"command\": \"bash ${BIN_DIR}/claude-usage-statusline.sh\" }"
+  echo ""
 fi
 
 # --- Finalize -------------------------------------------------------------
-echo "$CLAUDE_USAGE_VERSION" > "$INSTALL_DIR/.version"
-cp "$0" "$INSTALL_DIR/install.sh" 2>/dev/null || true
+echo "${CLAUDE_USAGE_VERSION}" > "${INSTALL_DIR}/.version"
+cp "${0}" "${INSTALL_DIR}/install.sh" 2>/dev/null || true
 
-if [ "$CHANGED" -eq 0 ]; then
+if [ "${CHANGED}" -eq 0 ]; then
   echo "OK: already up to date"
 fi
 exit 0

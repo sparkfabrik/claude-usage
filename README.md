@@ -76,15 +76,35 @@ curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/insta
 curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | bash -s -- --uninstall
 ```
 
+### Options
+
+| Flag / env var                               | Default                       | Effect                                                                                             |
+| -------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| `--statusline` / `CLAUDE_USAGE_STATUSLINE=1` | off                           | Register the Claude Code statusLine in `~/.claude/settings.json` (opt-in).                         |
+| `--no-reader` / `CLAUDE_USAGE_READER=0`      | reader on                     | Skip wiring the desktop reader. Reader files are still placed on disk; only the wiring is skipped. |
+| `CLAUDE_USAGE_VERSION=<tag>`                 | latest                        | Pin a specific release.                                                                            |
+| `INSTALL_DIR=<path>`                         | `~/.local/share/claude-usage` | Override the installation directory.                                                               |
+
+```bash
+# Enable the Claude Code statusline as well as the desktop reader
+curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_STATUSLINE=1 bash
+
+# CLI + statusline only, no desktop reader wiring
+curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_READER=0 CLAUDE_USAGE_STATUSLINE=1 bash
+```
+
+When passing flags through a piped install, append them after `bash -s --` (e.g. `bash -s -- --no-reader`).
+
 ### What the installer does
 
 1. Downloads the correct binary for your OS/arch from GitHub Releases
 2. Installs to `~/.local/share/claude-usage/` with symlinks in `~/.local/bin/`
-3. Detects your desktop environment:
+3. Detects your desktop environment and wires the matching reader (unless `--no-reader`):
    - **GNOME** → symlinks the shell extension, prints enable command
    - **KDE** → installs plasmoid via `kpackagetool6`, prints widget instructions
    - **Waybar** → symlinks the module script, prints config snippet
    - **macOS** → installs the tray binary, prints launch instructions
+4. Symlinks the terminal statusline script (always), but only registers it in `~/.claude/settings.json` when `--statusline` / `CLAUDE_USAGE_STATUSLINE=1` is given
 
 ## Usage
 
