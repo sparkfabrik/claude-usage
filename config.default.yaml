@@ -5,12 +5,19 @@ api:
   enabled: true
   # Cache older than this (seconds) triggers a new API call
   stale_after: 60
-  # Model used for polling (cheapest, 1 token per poll)
+  # OAuth usage endpoint, read first. It consumes no quota and reports
+  # model-scoped windows (for example "Opus Weekly") that the rate-limit
+  # response headers cannot express. Leave empty for the built-in default.
+  usage_endpoint: ""
+  # Model used by the fallback poll. That fallback is the old 1-token request,
+  # used only when the usage endpoint is unreachable.
   model: claude-haiku-4-5-20251001
-  # Only poll when Claude Code is running (default: true)
-  # Set false to always poll when cache is stale, regardless of Claude's state
+  # Only poll when Claude Code is running (default: false)
+  # Set true to hold back while Claude Code is closed. The default changed when
+  # the usage endpoint made polling free: holding back left readers showing
+  # stale numbers for as long as Claude Code stayed closed.
   # Note: --force-poll bypasses both only_when_active and stale_after
-  only_when_active: true
+  only_when_active: false
 
 display:
   # Show estimated API-equivalent cost

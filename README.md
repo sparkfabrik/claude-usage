@@ -27,7 +27,11 @@ All readers call `claude-usage --status` every 60 seconds and render the JSON re
 
 ## How it works
 
-Claude Code has no public usage API. This tool polls the Anthropic API with a minimal 1-token Haiku request (~$0.000012/poll) and reads the rate-limit headers to determine your current utilization. Token and cost data is parsed from Claude Code's local JSONL conversation logs.
+Utilization comes from Anthropic's OAuth usage endpoint, authenticated with the OAuth token Claude Code already stores. It consumes no quota, and it reports **model-scoped windows** such as "Opus Weekly" alongside the session and weekly figures. That matters because a single model can be nearly exhausted while the overall weekly number still looks calm.
+
+If the endpoint is unreachable, the tool falls back to its original method: a 1-token Haiku request (~$0.000012/poll) whose rate-limit response headers carry the session and weekly utilization. The fallback reports no model-scoped windows.
+
+Token and cost data is parsed from Claude Code's local JSONL conversation logs. That scan is cached, because a working machine can hold hundreds of megabytes of transcripts and the readers poll every minute.
 
 ## Features
 
@@ -37,7 +41,8 @@ Claude Code has no public usage API. This tool polls the Anthropic API with a mi
 - **Waybar module** — custom module with glyph indicators and CSS class theming
 - **macOS tray app** — menu bar item with dropdown details and color-coded status
 - **Terminal statusline** — lightweight Bash script for tmux/shell prompt integration
-- **Minimal polling cost** — ~$0.017/day, ~$0.52/month with 60s interval
+- **Free by default** — the usage endpoint costs nothing; the paid 1-token poll is only a fallback (~$0.017/day if it ever kicks in)
+- **Model-scoped limits** — see "Opus Weekly" or "Fable Weekly" separately from the overall weekly window
 - **Single static binary** — no runtime dependencies, no Python, no venv
 - **Configurable** — YAML config for polling interval, display periods, cost visibility, color thresholds, model pricing overrides
 
@@ -233,7 +238,8 @@ api:
   enabled: true
   stale_after: 60 # seconds — poll API if cache is older than this
   model: claude-haiku-4-5-20251001
-  only_when_active: true # only poll when Claude Code is running
+  usage_endpoint: "" # OAuth usage endpoint; empty uses the built-in default
+  only_when_active: false # poll even while Claude Code is closed (polling is free)
 
 display:
   show_cost: true
