@@ -63,9 +63,9 @@ func TestAgeSeconds(t *testing.T) {
 
 func TestIsFresh(t *testing.T) {
 	tests := []struct {
-		name     string
-		age      time.Duration
-		thresh   int
+		name      string
+		age       time.Duration
+		thresh    int
 		wantFresh bool
 	}{
 		{"fresh", -5 * time.Second, 60, true},
@@ -241,5 +241,87 @@ func TestWrite_ValidJSON(t *testing.T) {
 	}
 	if parsed.Utilization5h != 0.5 {
 		t.Errorf("got %f, want 0.5", parsed.Utilization5h)
+	}
+}
+
+func TestWindowIsOpen(t *testing.T) {
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+
+	future := Window{ResetsAt: now.Add(time.Hour).Format(time.RFC3339Nano)}
+	if !future.IsOpen(now) {
+		t.Error("a window resetting in an hour is open")
+	}
+
+	past := Window{ResetsAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}
+	if past.IsOpen(now) {
+		t.Error("a window that already reset is closed")
+	}
+
+	// Absent information must not silently drop a window.
+	if !(Window{}).IsOpen(now) {
+		t.Error("a window with no reset time is open")
+	}
+	if !(Window{ResetsAt: "tomorrow"}).IsOpen(now) {
+		t.Error("an unparseable reset time leaves the window open")
+	}
+}
+
+// A cached percentage survives a failed refresh, but only until its own window
+// rolls over: showing 78% against a week that has just restarted is worse than
+// showing nothing.
+func TestOpenWindowsDropsExpiredOnes(t *testing.T) {
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	q := &QuotaCache{Windows: []Window{
+		{Key: WindowSession, ResetsAt: now.Add(-time.Minute).Format(time.RFC3339Nano)},
+		{Key: WindowWeekly, ResetsAt: now.Add(72 * time.Hour).Format(time.RFC3339Nano)},
+	}}
+
+	open := q.OpenWindows(now)
+	if len(open) != 1 {
+		t.Fatalf("got %d open windows, want 1", len(open))
+	}
+	if open[0].Key != WindowWeekly {
+		t.Errorf("kept %q, want the weekly window", open[0].Key)
+	}
+}
+
+func TestOpenWindowsOnNilCache(t *testing.T) {
+	var q *QuotaCache
+	if got := q.OpenWindows(time.Now()); got != nil {
+		t.Errorf("got %v, want nil", got)
+	}
+}
+
+// Cache files written before windows existed must still yield the two flat
+// windows, so consumers only ever handle one shape.
+func TestSyncWindowsRebuildsFromFlatFields(t *testing.T) {
+	q := &QuotaCache{
+		Utilization5h: 0.25,
+		Reset5h:       "2026-08-25T18:00:00Z",
+		Utilization7d: 0.5,
+		Reset7d:       "2026-08-29T01:00:00Z",
+	}
+	q.SyncWindows()
+
+	if len(q.Windows) != 2 {
+		t.Fatalf("got %d windows, want 2", len(q.Windows))
+	}
+	if q.Windows[0].Key != WindowSession || q.Windows[0].Utilization != 0.25 {
+		t.Errorf("session window = %+v", q.Windows[0])
+	}
+	if q.Windows[1].Key != WindowWeekly || q.Windows[1].Utilization != 0.5 {
+		t.Errorf("weekly window = %+v", q.Windows[1])
+	}
+}
+
+func TestSyncWindowsKeepsExistingWindows(t *testing.T) {
+	q := &QuotaCache{
+		Utilization5h: 0.25,
+		Windows:       []Window{{Key: "opus:weekly", Utilization: 0.9}},
+	}
+	q.SyncWindows()
+
+	if len(q.Windows) != 1 || q.Windows[0].Key != "opus:weekly" {
+		t.Errorf("SyncWindows overwrote populated windows: %+v", q.Windows)
 	}
 }

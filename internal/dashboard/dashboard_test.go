@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Monska85/claude-usage/internal/analyzer"
-	"github.com/Monska85/claude-usage/internal/auth"
-	"github.com/Monska85/claude-usage/internal/cache"
-	"github.com/Monska85/claude-usage/internal/config"
+	"github.com/sparkfabrik/claude-usage/internal/analyzer"
+	"github.com/sparkfabrik/claude-usage/internal/auth"
+	"github.com/sparkfabrik/claude-usage/internal/cache"
+	"github.com/sparkfabrik/claude-usage/internal/config"
 )
 
 func TestDimText(t *testing.T) {
@@ -171,15 +171,15 @@ func TestRenderUsageTable_WithData(t *testing.T) {
 	start := now.Add(-1 * time.Hour)
 	summaries := []*analyzer.Summary{
 		{
-			PeriodLabel:         "today",
-			TotalInputTokens:    10000,
-			TotalOutputTokens:   5000,
+			PeriodLabel:           "today",
+			TotalInputTokens:      10000,
+			TotalOutputTokens:     5000,
 			TotalCacheWriteTokens: 2000,
 			TotalCacheReadTokens:  1000,
-			TotalCostUSD:        0.15,
-			MessageCount:        5,
-			StartTime:           &start,
-			EndTime:             &now,
+			TotalCostUSD:          0.15,
+			MessageCount:          5,
+			StartTime:             &start,
+			EndTime:               &now,
 		},
 	}
 
@@ -237,14 +237,14 @@ func TestRenderModelTable_WithData(t *testing.T) {
 	summaries := []*analyzer.Summary{
 		{
 			PeriodLabel:           "claude-sonnet-4",
-			TotalInputTokens:     5000,
-			TotalOutputTokens:    2000,
+			TotalInputTokens:      5000,
+			TotalOutputTokens:     2000,
 			TotalCacheWriteTokens: 3000,
 			TotalCacheReadTokens:  1000,
-			MessageCount:         3,
-			TotalCostUSD:         0.10,
-			StartTime:            &now,
-			EndTime:              &now,
+			MessageCount:          3,
+			TotalCostUSD:          0.10,
+			StartTime:             &now,
+			EndTime:               &now,
 		},
 	}
 
@@ -301,14 +301,14 @@ func TestRenderModelTable_ColumnsMatchPeriodTable(t *testing.T) {
 	now := time.Now()
 	summary := &analyzer.Summary{
 		PeriodLabel:           "test",
-		TotalInputTokens:     10000,
-		TotalOutputTokens:    5000,
+		TotalInputTokens:      10000,
+		TotalOutputTokens:     5000,
 		TotalCacheWriteTokens: 2000,
 		TotalCacheReadTokens:  1000,
-		MessageCount:         5,
-		TotalCostUSD:         1.23,
-		StartTime:            &now,
-		EndTime:              &now,
+		MessageCount:          5,
+		TotalCostUSD:          1.23,
+		StartTime:             &now,
+		EndTime:               &now,
 	}
 
 	periodOut := RenderUsageTable([]*analyzer.Summary{summary}, true)
@@ -365,3 +365,44 @@ func TestRenderBurnRate_ValidRate(t *testing.T) {
 // --- helpers ---
 
 func ptrF(f float64) *float64 { return &f }
+
+// Model-scoped windows are rendered under the two headline ones, with the
+// model spelled out rather than squeezed into the 5h/7d column.
+func TestRenderQuotaShowsModelScopedWindows(t *testing.T) {
+	future := time.Now().Add(72 * time.Hour).Format(time.RFC3339Nano)
+	q := &cache.QuotaCache{
+		Utilization5h: 0.1,
+		Utilization7d: 0.49,
+		PolledAt:      time.Now().Format(time.RFC3339Nano),
+		Windows: []cache.Window{
+			{Key: cache.WindowSession, Title: "Session (5-hour)", Utilization: 0.1, ResetsAt: future},
+			{Key: cache.WindowWeekly, Title: "Weekly (7-day)", Utilization: 0.49, ResetsAt: future},
+			{Key: "fable:weekly", Title: "Fable Weekly", Model: "Fable", Utilization: 0.73, ResetsAt: future},
+		},
+	}
+
+	out := RenderQuota(q, config.Default())
+	if !strings.Contains(out, "Fable") {
+		t.Errorf("model-scoped window missing from output:\n%s", out)
+	}
+	if !strings.Contains(out, "73.0%") {
+		t.Errorf("model-scoped percentage missing from output:\n%s", out)
+	}
+}
+
+// A window that has already reset carries a percentage from the previous
+// period, so it is dropped rather than shown.
+func TestRenderQuotaDropsExpiredModelWindows(t *testing.T) {
+	q := &cache.QuotaCache{
+		PolledAt: time.Now().Format(time.RFC3339Nano),
+		Windows: []cache.Window{
+			{Key: "opus:weekly", Title: "Opus Weekly", Model: "Opus", Utilization: 0.99,
+				ResetsAt: time.Now().Add(-time.Hour).Format(time.RFC3339Nano)},
+		},
+	}
+
+	out := RenderQuota(q, config.Default())
+	if strings.Contains(out, "Opus") {
+		t.Errorf("expired window should not be rendered:\n%s", out)
+	}
+}

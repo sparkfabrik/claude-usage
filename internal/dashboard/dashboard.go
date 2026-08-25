@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
-	"github.com/Monska85/claude-usage/internal/analyzer"
-	"github.com/Monska85/claude-usage/internal/auth"
-	"github.com/Monska85/claude-usage/internal/cache"
-	"github.com/Monska85/claude-usage/internal/config"
-	"github.com/Monska85/claude-usage/internal/reader"
+	"github.com/sparkfabrik/claude-usage/internal/analyzer"
+	"github.com/sparkfabrik/claude-usage/internal/auth"
+	"github.com/sparkfabrik/claude-usage/internal/cache"
+	"github.com/sparkfabrik/claude-usage/internal/config"
+	"github.com/sparkfabrik/claude-usage/internal/reader"
 )
 
 var (
@@ -139,11 +140,38 @@ func RenderQuota(q *cache.QuotaCache, cfg *config.Config) string {
 		title += dimStyle.Render(fmt.Sprintf(" | %s", q.Status5h))
 	}
 
-	return border.Render(
-		title + "\n" +
-			fmt.Sprintf("  5h  %s  %s  resets in %s%s\n", bar5h, style5h.Render(fmt.Sprintf("%5.1f%%", pct5h)), r5, staleMark) +
-			fmt.Sprintf("  7d  %s  %s  resets in %s%s", bar7d, style7d.Render(fmt.Sprintf("%5.1f%%", pct7d)), r7, staleMark),
-	)
+	body := title + "\n" +
+		fmt.Sprintf("  5h  %s  %s  resets in %s%s\n", bar5h, style5h.Render(fmt.Sprintf("%5.1f%%", pct5h)), r5, staleMark) +
+		fmt.Sprintf("  7d  %s  %s  resets in %s%s", bar7d, style7d.Render(fmt.Sprintf("%5.1f%%", pct7d)), r7, staleMark)
+
+	// Model-scoped windows sit below the two flat ones. They exist only when
+	// the OAuth source reported them, and a window that has already reset is
+	// dropped rather than shown with a stale percentage.
+	for _, w := range q.OpenWindows(time.Now()) {
+		if w.Model == "" {
+			continue
+		}
+		pct := w.Utilization * 100
+		// A narrower bar and a spelled-out name: these windows are a
+		// different class from the two headline ones, and "Fab" would be a
+		// poor trade for keeping the columns identical.
+		body += fmt.Sprintf("\n  %-11s %s  %s  resets in %s%s",
+			truncateLabel(w.Model, 11),
+			makeBar(w.Utilization, 12, cfg),
+			utilizationStyle(pct, cfg).Render(fmt.Sprintf("%5.1f%%", pct)),
+			FormatTimeRemaining(w.MinutesToReset()),
+			staleMark)
+	}
+
+	return border.Render(body)
+}
+
+// truncateLabel shortens a model name to fit the fixed-width quota column.
+func truncateLabel(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
 }
 
 // costFootnote clarifies that the cost column is an estimate based on public
@@ -162,9 +190,9 @@ func RenderUsageTable(summaries []*analyzer.Summary, showCost bool) string {
 	}
 
 	const (
-		colPeriod   = 0
-		colTotal    = 5
-		colCost     = 6
+		colPeriod = 0
+		colTotal  = 5
+		colCost   = 6
 	)
 
 	rows := make([][]string, 0, len(summaries))

@@ -13,6 +13,65 @@ import (
 // Data older than this is shown with visual staleness indicators.
 const defaultDisplayStaleSeconds = 120
 
+// Source identifies where quota data came from.
+const (
+	// SourceOAuth is the dedicated usage endpoint. It costs no quota and
+	// reports model-scoped windows.
+	SourceOAuth = "oauth"
+	// SourceHeaders is the 1-token poll that reads rate-limit response
+	// headers. It only ever reports the session and weekly windows.
+	SourceHeaders = "headers"
+)
+
+// Window keys for the two windows every source reports.
+const (
+	WindowSession = "session"
+	WindowWeekly  = "weekly"
+)
+
+// Window is one rate-limit window. The session and weekly windows are always
+// present; model-scoped windows (for example "Opus Weekly") appear only when
+// the OAuth usage endpoint reports them.
+type Window struct {
+	// Key is stable and machine-readable: "session", "weekly", or a
+	// model-scoped key such as "opus:weekly".
+	Key string `json:"key"`
+	// Title is display-ready, for example "Session (5-hour)" or "Opus Weekly".
+	// It is resolved by the producer, which knows the window kind, rather than
+	// parsed by consumers: a model named "Opus 5 (1M context)" would otherwise
+	// read as a one-minute window.
+	Title string `json:"title"`
+	// Model is the display name of the scoped model, empty for flat windows.
+	Model string `json:"model,omitempty"`
+	// Utilization is a fraction in [0,1].
+	Utilization float64 `json:"utilization"`
+	// ResetsAt is RFC 3339, empty when the source does not report one.
+	ResetsAt string `json:"resets_at,omitempty"`
+}
+
+// ResetTime parses ResetsAt. Returns nil when absent or malformed.
+func (w Window) ResetTime() *time.Time {
+	return parseOptionalTime(w.ResetsAt)
+}
+
+// MinutesToReset returns minutes until this window resets, nil when unknown.
+func (w Window) MinutesToReset() *float64 {
+	return minutesToReset(w.ResetTime())
+}
+
+// IsOpen reports whether the window still applies at now. A window with no
+// reset time is always considered open: absent information must not silently
+// drop data. This is what keeps a cached percentage usable across a failed
+// refresh while preventing a stale 78% from being shown against a window that
+// has already rolled over.
+func (w Window) IsOpen(now time.Time) bool {
+	t := w.ResetTime()
+	if t == nil {
+		return true
+	}
+	return t.After(now)
+}
+
 // QuotaCache is the JSON structure stored in the cache file.
 type QuotaCache struct {
 	Utilization5h float64 `json:"utilization_5h"`
@@ -21,6 +80,42 @@ type QuotaCache struct {
 	Utilization7d float64 `json:"utilization_7d"`
 	Reset7d       string  `json:"reset_7d,omitempty"` // ISO 8601
 	PolledAt      string  `json:"polled_at"`          // ISO 8601
+
+	// Windows carries every window the source reported, including
+	// model-scoped ones. Older cache files predate this field and unmarshal
+	// with it nil; SyncWindows rebuilds it from the flat fields.
+	Windows []Window `json:"windows,omitempty"`
+	// Source is SourceOAuth or SourceHeaders. Empty in caches written before
+	// the OAuth endpoint was introduced.
+	Source string `json:"source,omitempty"`
+}
+
+// OpenWindows returns the windows that have not yet reset, newest data first
+// in the order the source reported them.
+func (c *QuotaCache) OpenWindows(now time.Time) []Window {
+	if c == nil {
+		return nil
+	}
+	open := make([]Window, 0, len(c.Windows))
+	for _, w := range c.Windows {
+		if w.IsOpen(now) {
+			open = append(open, w)
+		}
+	}
+	return open
+}
+
+// SyncWindows fills Windows from the flat session/weekly fields when the
+// producer did not populate it, so consumers can rely on Windows alone. Cache
+// files written by older versions land here.
+func (c *QuotaCache) SyncWindows() {
+	if c == nil || len(c.Windows) > 0 {
+		return
+	}
+	c.Windows = []Window{
+		{Key: WindowSession, Title: "Session (5-hour)", Utilization: c.Utilization5h, ResetsAt: c.Reset5h},
+		{Key: WindowWeekly, Title: "Weekly (7-day)", Utilization: c.Utilization7d, ResetsAt: c.Reset7d},
+	}
 }
 
 // DefaultPath returns the default cache file location following XDG Base Directory spec.
