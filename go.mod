@@ -1,4 +1,4 @@
-module github.com/Monska85/claude-usage
+module github.com/sparkfabrik/claude-usage
 
 go 1.23
 
