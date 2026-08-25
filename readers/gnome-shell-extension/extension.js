@@ -23,6 +23,15 @@ const REFRESH_SECONDS = 30;
 const ANTHROPIC_ORANGE = '#D97706';
 const GREY = '#888888';
 
+// formatTokens renders a token count compactly: 282200000 becomes "282.2M".
+function formatTokens(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '0';
+    if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+    return String(n);
+}
+
 const ClaudeUsageIndicator = GObject.registerClass(
 class ClaudeUsageIndicator extends PanelMenu.Button {
     _init(extPath) {
@@ -72,6 +81,14 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(this._menuCurrent);
         this._menuWeekly = new PopupMenu.PopupMenuItem('Weekly  (7d): --', { reactive: false });
         this.menu.addMenuItem(this._menuWeekly);
+
+        // Model-scoped windows are created on demand: how many the account has
+        // is only known once the CLI answers, and older CLI versions report
+        // none at all.
+        this._menuModels = [];
+        this._menuTokens = new PopupMenu.PopupMenuItem('', { reactive: false });
+        this._menuTokens.visible = false;
+        this.menu.addMenuItem(this._menuTokens);
 
         // Error menu item (hidden by default)
         this._menuError = new PopupMenu.PopupMenuItem('', { reactive: false });
@@ -189,6 +206,42 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._menuAuthState.visible = true;
     }
 
+    // Model-scoped windows ("Opus Weekly") only arrive from the OAuth source.
+    // The list is rebuilt on every update because a model can appear or drop
+    // out between polls.
+    _syncModelItems(limits, hasError, labelOpacity) {
+        for (const item of this._menuModels) {
+            item.destroy();
+        }
+        this._menuModels = [];
+
+        if (hasError) return;
+
+        for (const limit of limits) {
+            if (!limit || !limit.model) continue;
+            const item = new PopupMenu.PopupMenuItem('', { reactive: false });
+            item.label.set_style(`color: ${limit.color || GREY};`);
+            item.label.set_opacity(labelOpacity);
+            item.label.set_text(`${limit.title}:  ${limit.pct}%  resets in ${limit.reset}`);
+            this.menu.addMenuItem(item, this._menuModels.length + 2);
+            this._menuModels.push(item);
+        }
+    }
+
+    // Today's token total, shown only when the CLI reports it.
+    _syncTokenItem(data) {
+        const today = data.today;
+        if (!today || typeof today.tokens !== 'number') {
+            this._menuTokens.visible = false;
+            return;
+        }
+        const tokens = formatTokens(today.tokens);
+        const messages = today.messages || 0;
+        this._menuTokens.label.set_text(`Today:  ${tokens} tokens · ${messages} messages`);
+        this._menuTokens.label.set_style(`color: ${GREY};`);
+        this._menuTokens.visible = true;
+    }
+
     _updateUI(data) {
         const hasError = !!data.error;
         const isStale = !!data.stale;
@@ -223,6 +276,9 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._menuWeekly.label.set_style(`color: ${wColor};`);
         this._menuWeekly.label.set_opacity(labelOpacity);
         this._menuWeekly.label.set_text(`Weekly  (7d):  ${data.w_pct}%  resets in ${data.w_reset}`);
+
+        this._syncModelItems(Array.isArray(data.limits) ? data.limits : [], hasError, labelOpacity);
+        this._syncTokenItem(data);
 
         if (hasError) {
             this._menuError.label.set_text(`Error: ${data.error}`);

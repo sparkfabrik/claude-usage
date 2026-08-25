@@ -36,6 +36,35 @@ type StatusResponse struct {
 	ClaudeRunning bool   `json:"claude_running"`
 	Auth          string `json:"auth"`
 	Error         string `json:"error"`
+
+	// Limits carries every open window, including the model-scoped ones the
+	// OAuth source reports. Absent from older CLI versions.
+	Limits []StatusLimit `json:"limits"`
+}
+
+// StatusLimit is one rate-limit window.
+type StatusLimit struct {
+	Key   string `json:"key"`
+	Title string `json:"title"`
+	Model string `json:"model"`
+	Pct   int    `json:"pct"`
+	Reset string `json:"reset"`
+}
+
+// bindingModelLimit returns the fullest model-scoped window, or nil when the
+// source reports none. A model can be nearly exhausted while the overall
+// weekly figure still looks calm, and that is the number worth surfacing.
+func bindingModelLimit(limits []StatusLimit) *StatusLimit {
+	var worst *StatusLimit
+	for i := range limits {
+		if limits[i].Model == "" {
+			continue
+		}
+		if worst == nil || limits[i].Pct > worst.Pct {
+			worst = &limits[i]
+		}
+	}
+	return worst
 }
 
 // colorErrorRed is system red used for error states.
@@ -170,6 +199,10 @@ func updateDisplay() {
 	// Title: <glyph> 5h <c_pct>% · 7d <w_pct>%
 	glyph := quotaGlyph(status.CPct)
 	title := fmt.Sprintf("%s 5h %d%% · 7d %d%%", glyph, status.CPct, status.WPct)
+	if binding := bindingModelLimit(status.Limits); binding != nil &&
+		binding.Pct >= status.WPct && binding.Pct >= status.CPct {
+		title = fmt.Sprintf("%s · %s %d%%", title, binding.Model, binding.Pct)
+	}
 	if status.Stale {
 		title += " ?"
 	}
@@ -181,6 +214,10 @@ func updateDisplay() {
 		nativeSetMenuItemTitle(tagStatus, "Status: stale")
 	} else {
 		nativeSetMenuItemTitle(tagStatus, "Status: active")
+	}
+	if binding := bindingModelLimit(status.Limits); binding != nil {
+		nativeSetMenuItemTitle(tagStatus, fmt.Sprintf("%s: %d%% · resets in %s",
+			binding.Title, binding.Pct, formatReset(binding.Reset)))
 	}
 
 	// Dropdown detail

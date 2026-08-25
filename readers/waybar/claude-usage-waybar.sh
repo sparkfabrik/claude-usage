@@ -74,13 +74,47 @@ else:
 stale_suffix = " ?" if stale else ""
 text = f"{glyph} 5h:{c_pct}% 7d:{w_pct}%{stale_suffix}"
 
+def fmt_tokens(n):
+    n = int(n or 0)
+    if n >= 1_000_000_000:
+        return f"{n / 1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return str(n)
+
 # Build tooltip
 lines = [
     "Claude Code Quota",
     "━━━━━━━━━━━━━━━━",
-    f"5h: {c_pct}% (resets in {c_reset})",
-    f"7d: {w_pct}% (resets in {w_reset})",
 ]
+
+# limits[] carries the model-scoped windows the OAuth source reports; older
+# CLI versions and the header fallback only ever return the two flat windows,
+# so fall back to those.
+limits = d.get("limits") or []
+if limits:
+    for limit in limits:
+        lines.append(f"{limit.get('title', '?')}: {int(limit.get('pct', 0))}%"
+                     f" (resets in {limit.get('reset', '?')})")
+else:
+    lines.append(f"5h: {c_pct}% (resets in {c_reset})")
+    lines.append(f"7d: {w_pct}% (resets in {w_reset})")
+
+today = d.get("today") or {}
+if today:
+    lines.append("")
+    lines.append(f"Today: {fmt_tokens(today.get('tokens'))} tokens"
+                 f" · {int(today.get('messages', 0))} messages"
+                 f" · {int(today.get('sessions', 0))} sessions")
+
+models = d.get("models") or []
+if models:
+    lines.append("")
+    lines.append("Top models")
+    for model in models[:4]:
+        lines.append(f"  {model.get('name', '?')}: {fmt_tokens(model.get('tokens'))}")
 if auth == "expired":
     lines.append("Auth expired — run Claude Code to refresh")
 elif auth == "missing":

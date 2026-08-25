@@ -51,6 +51,16 @@ else:
 
 stale_suffix = " ?" if stale else ""
 
+# Surface the fullest model-scoped window, if any. A model can be nearly
+# exhausted while the overall weekly figure still looks calm, and that is
+# exactly the case worth a warning in a one-line badge.
+binding = ""
+scoped = [limit for limit in (d.get("limits") or []) if limit.get("model")]
+if scoped:
+    worst = max(scoped, key=lambda limit: int(limit.get("pct", 0)))
+    if int(worst.get("pct", 0)) >= max(w_pct, c_pct):
+        binding = f" {worst.get('model', '?')}:{int(worst.get('pct', 0))}%"
+
 # Output with ANSI orange (color 172)
-print(f"\033[38;5;172m{glyph} 5h:{c_pct}% 7d:{w_pct}%{stale_suffix}\033[0m", end="")
+print(f"\033[38;5;172m{glyph} 5h:{c_pct}% 7d:{w_pct}%{binding}{stale_suffix}\033[0m", end="")
 PYEOF
