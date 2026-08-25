@@ -22,9 +22,51 @@ func TestUsageEntry_TotalTokens(t *testing.T) {
 }
 
 func TestUsageEntry_DedupKey(t *testing.T) {
-	e := UsageEntry{MessageID: "msg-1", RequestID: "req-1"}
-	if got := e.DedupKey(); got != "msg-1:req-1" {
-		t.Errorf("DedupKey = %q, want msg-1:req-1", got)
+	// The message id wins: it is stable across resumed and forked sessions,
+	// where the same message is rewritten under a fresh uuid.
+	e := UsageEntry{MessageID: "msg-1", EntryUUID: "uuid-1", RequestID: "req-1"}
+	if got := e.DedupKey(); got != "msg-1" {
+		t.Errorf("DedupKey = %q, want msg-1", got)
+	}
+}
+
+func TestUsageEntry_DedupKeyFallsBackToUUID(t *testing.T) {
+	e := UsageEntry{EntryUUID: "uuid-1", RequestID: "req-1"}
+	if got := e.DedupKey(); got != "uuid-1:req-1" {
+		t.Errorf("DedupKey = %q, want uuid-1:req-1", got)
+	}
+}
+
+// The same assistant message reappearing under a new uuid, as happens when a
+// session is resumed or forked, must be counted once.
+func TestLoadEntries_DeduplicatesForkedMessages(t *testing.T) {
+	dir := t.TempDir()
+	projects := filepath.Join(dir, "projects", "proj")
+	if err := os.MkdirAll(projects, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	line := func(uuid string) string {
+		return `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"` + uuid +
+			`","requestId":"req-` + uuid + `","message":{"id":"msg-same","model":"claude-opus-4-8",` +
+			`"usage":{"input_tokens":10,"output_tokens":5}}}`
+	}
+
+	original := filepath.Join(projects, "a.jsonl")
+	forked := filepath.Join(projects, "b.jsonl")
+	if err := os.WriteFile(original, []byte(line("uuid-a")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(forked, []byte(line("uuid-b")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(filepath.Join(dir, "projects"), nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1 after dedup by message id", len(entries))
 	}
 }
 

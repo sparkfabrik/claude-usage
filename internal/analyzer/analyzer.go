@@ -2,25 +2,26 @@
 package analyzer
 
 import (
+	"sort"
 	"time"
 
-	"github.com/Monska85/claude-usage/internal/pricing"
-	"github.com/Monska85/claude-usage/internal/reader"
+	"github.com/sparkfabrik/claude-usage/internal/pricing"
+	"github.com/sparkfabrik/claude-usage/internal/reader"
 )
 
 // Summary holds aggregated usage for a time period.
 type Summary struct {
-	PeriodLabel         string
-	TotalInputTokens    int
-	TotalOutputTokens   int
+	PeriodLabel           string
+	TotalInputTokens      int
+	TotalOutputTokens     int
 	TotalCacheWriteTokens int
 	TotalCacheReadTokens  int
-	TotalCostUSD        float64
-	MessageCount        int
-	SessionCount        int
-	ModelsUsed          map[string]int
-	StartTime           *time.Time
-	EndTime             *time.Time
+	TotalCostUSD          float64
+	MessageCount          int
+	SessionCount          int
+	ModelsUsed            map[string]int
+	StartTime             *time.Time
+	EndTime               *time.Time
 }
 
 // TotalTokens returns the sum of all token types.
@@ -89,8 +90,11 @@ type TimePeriod struct {
 
 // StandardPeriods returns the default time periods.
 func StandardPeriods() []TimePeriod {
-	now := time.Now().UTC()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// Day boundaries follow the local calendar, not UTC. With a UTC midnight
+	// anyone east of Greenwich sees an evening's work filed under tomorrow,
+	// and anyone west sees the morning still counted as yesterday.
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	return []TimePeriod{
 		{"today", todayStart, now},
@@ -128,10 +132,20 @@ func SummarizeByModel(entries []reader.UsageEntry, overrides map[string]pricing.
 		byModel[e.Model] = append(byModel[e.Model], e)
 	}
 
-	var results []*Summary
+	// Map iteration order is random, so the model table would reshuffle
+	// between runs. Order by total tokens, heaviest first, with the model
+	// name breaking ties so the result is fully deterministic.
+	results := make([]*Summary, 0, len(byModel))
 	for model, modelEntries := range byModel {
 		results = append(results, Aggregate(modelEntries, model, overrides))
 	}
+	sort.Slice(results, func(i, j int) bool {
+		ti, tj := results[i].TotalTokens(), results[j].TotalTokens()
+		if ti != tj {
+			return ti > tj
+		}
+		return results[i].PeriodLabel < results[j].PeriodLabel
+	})
 	return results
 }
 
