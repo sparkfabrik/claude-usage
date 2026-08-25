@@ -53,9 +53,51 @@ The project should transition from Makefile to a Justfile.
   "stale": false,
   "claude_running": true,
   "auth": "valid",
-  "error": ""
+  "error": "",
+  "source": "oauth",
+  "limits": [
+    {
+      "key": "session",
+      "title": "Session (5-hour)",
+      "pct": 42,
+      "reset": "3h12m",
+      "color": "#32c850"
+    },
+    {
+      "key": "weekly",
+      "title": "Weekly (7-day)",
+      "pct": 67,
+      "reset": "5d02h",
+      "color": "#e6961e"
+    },
+    {
+      "key": "opus:weekly",
+      "title": "Opus Weekly",
+      "model": "Opus",
+      "pct": 73,
+      "reset": "5d02h",
+      "color": "#e6961e"
+    }
+  ],
+  "recent_days": [
+    {
+      "date": "2026-08-25",
+      "weekday": "Tue",
+      "tokens": 40024791,
+      "today": true
+    }
+  ],
+  "models": [{ "name": "Opus 4.8", "tokens": 7118000000 }],
+  "today": {
+    "tokens": 40024791,
+    "messages": 84,
+    "sessions": 3,
+    "cost_usd": 15.85
+  }
 }
 ```
+
+The first ten fields are the original contract and are always present, so readers written against it keep working untouched. Everything after them is additive and may be absent.
 
 - `c_pct`/`w_pct` — current (5h) / weekly (7d) utilization (0-100).
 - `c_reset`/`w_reset` — human-readable time until window resets.
@@ -64,6 +106,11 @@ The project should transition from Makefile to a Justfile.
 - `claude_running` — Claude Code process detected.
 - `auth` — `"valid"`, `"expired"`, `"missing"`, or `"unknown"`.
 - `error` — non-empty on failure.
+- `source` — `"oauth"` or `"headers"`. Model-scoped windows exist only with `"oauth"`.
+- `limits` — every window that has not yet reset. Entries with a `model` field are model-scoped. `title` is resolved by the CLI and must not be parsed by readers: a model named `Opus 5 (1M context)` would read as a one-minute window.
+- `recent_days` — seven days of token totals, oldest first, on local calendar dates.
+- `models` — per-model token totals, heaviest first.
+- `today` — the current local day.
 
 Flag combinations: `--status` (cached or poll), `--status --force-poll` (always poll), `--status --no-poll` (cache only).
 
@@ -79,10 +126,12 @@ internal/
   cache/                  Atomic JSON cache read/write
   config/                 YAML config with defaults
   dashboard/              Lipgloss TUI rendering (tables, bars, panels)
-  poller/                 1-token Haiku API polling, rate-limit header parsing
+  poller/                 1-token Haiku API polling, rate-limit header parsing (fallback source)
   pricing/                Per-model pricing table with prefix fallback
   process/                Claude Code process detection (pgrep-based, cross-platform)
   reader/                 JSONL conversation log parser (filepath.WalkDir)
+  stats/                  Local transcript aggregation (per day, per model) with a disk cache
+  usage/                  OAuth usage endpoint client, window normalization, fallback orchestration
 readers/
   gnome-shell-extension/  GNOME Shell panel indicator (extension.js)
   kde-plasmoid/           KDE Plasma 6 widget (QML)

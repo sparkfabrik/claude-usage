@@ -10,17 +10,22 @@ import (
 )
 
 type API struct {
-	Enabled        bool   `yaml:"enabled"`
-	StaleAfter     int    `yaml:"stale_after"`
-	Model          string `yaml:"model"`
+	Enabled    bool   `yaml:"enabled"`
+	StaleAfter int    `yaml:"stale_after"`
+	Model      string `yaml:"model"`
+	// UsageEndpoint is the OAuth usage endpoint. Empty means the built-in
+	// default. It is read first; the 1-token header poll is the fallback.
+	UsageEndpoint  string `yaml:"usage_endpoint"`
 	OnlyWhenActive *bool  `yaml:"only_when_active"`
 }
 
-// IsOnlyWhenActive returns whether polling should only happen when Claude Code is running.
-// Defaults to true if not explicitly set.
+// IsOnlyWhenActive returns whether polling should only happen when Claude Code
+// is running. It defaults to false: the usage endpoint costs nothing, so the
+// reason to hold back is gone, and holding back left readers showing stale
+// numbers for as long as Claude Code stayed closed.
 func (a API) IsOnlyWhenActive() bool {
 	if a.OnlyWhenActive == nil {
-		return true
+		return false
 	}
 	return *a.OnlyWhenActive
 }

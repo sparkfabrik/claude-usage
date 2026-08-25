@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Monska85/claude-usage/internal/auth"
-	"github.com/Monska85/claude-usage/internal/cache"
-	"github.com/Monska85/claude-usage/internal/config"
-	"github.com/Monska85/claude-usage/internal/pricing"
+	"github.com/sparkfabrik/claude-usage/internal/auth"
+	"github.com/sparkfabrik/claude-usage/internal/cache"
+	"github.com/sparkfabrik/claude-usage/internal/config"
+	"github.com/sparkfabrik/claude-usage/internal/pricing"
 )
 
 // --- initVersion / applyBuildInfo ---
@@ -442,9 +442,9 @@ func TestBuildPricingOverrides_Populated(t *testing.T) {
 
 func TestStatusResponse_JSONOmitsEmptyError(t *testing.T) {
 	resp := StatusResponse{
-		CPct:  42,
+		CPct:   42,
 		CColor: "#32c850",
-		Auth:  "valid",
+		Auth:   "valid",
 	}
 
 	data, err := json.Marshal(resp)
@@ -616,7 +616,7 @@ func TestRunStatus_NoPollNilCredsNoCache(t *testing.T) {
 	cfg := config.Default()
 	cachePath := t.TempDir() + "/nonexistent.json"
 
-	runStatus(&buf, nil, cfg, cachePath, true, false, "")
+	runStatus(&buf, nil, cfg, cachePath, "", true, false, "")
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -644,7 +644,7 @@ func TestRunStatus_NoPollNilCredsWithCache(t *testing.T) {
 		t.Fatalf("cache write: %v", err)
 	}
 
-	runStatus(&buf, nil, cfg, cachePath, true, false, "")
+	runStatus(&buf, nil, cfg, cachePath, "", true, false, "")
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -681,7 +681,7 @@ func TestRunStatus_NoPollWithValidCreds(t *testing.T) {
 		ExpiresAt: time.Now().Add(1 * time.Hour).UnixMilli(),
 	}
 
-	runStatus(&buf, creds, cfg, cachePath, true, false, "")
+	runStatus(&buf, creds, cfg, cachePath, "", true, false, "")
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -706,7 +706,7 @@ func TestRunStatus_PollDisabledNoCache(t *testing.T) {
 		ExpiresAt: time.Now().Add(1 * time.Hour).UnixMilli(),
 	}
 
-	runStatus(&buf, creds, cfg, cachePath, false, false, "")
+	runStatus(&buf, creds, cfg, cachePath, "", false, false, "")
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -722,7 +722,7 @@ func TestRunStatus_NilCredsNoCache(t *testing.T) {
 	cfg := config.Default()
 	cachePath := t.TempDir() + "/nonexistent.json"
 
-	runStatus(&buf, nil, cfg, cachePath, false, false, "")
+	runStatus(&buf, nil, cfg, cachePath, "", false, false, "")
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -745,7 +745,7 @@ func TestRunStatus_ExpiredCredsNoCache(t *testing.T) {
 		ExpiresAt: time.Now().Add(-1 * time.Hour).UnixMilli(),
 	}
 
-	runStatus(&buf, creds, cfg, cachePath, false, false, "")
+	runStatus(&buf, creds, cfg, cachePath, "", false, false, "")
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -775,7 +775,7 @@ func TestRunStatus_PollSuccess(t *testing.T) {
 	}
 
 	// No cache exists → should poll → get data from mock server
-	runStatus(&buf, creds, cfg, cachePath, false, false, server.URL)
+	runStatus(&buf, creds, cfg, cachePath, "", false, false, server.URL)
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -812,7 +812,7 @@ func TestRunStatus_PollError(t *testing.T) {
 		ExpiresAt:   time.Now().Add(1 * time.Hour).UnixMilli(),
 	}
 
-	runStatus(&buf, creds, cfg, cachePath, false, false, server.URL)
+	runStatus(&buf, creds, cfg, cachePath, "", false, false, server.URL)
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -849,7 +849,7 @@ func TestRunStatus_ForcePoll(t *testing.T) {
 		ExpiresAt:   time.Now().Add(1 * time.Hour).UnixMilli(),
 	}
 
-	runStatus(&buf, creds, cfg, cachePath, false, true, server.URL)
+	runStatus(&buf, creds, cfg, cachePath, "", false, true, server.URL)
 
 	var resp StatusResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {

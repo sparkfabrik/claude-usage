@@ -47,10 +47,12 @@ func TestIsOnlyWhenActive_ExplicitFalse(t *testing.T) {
 	}
 }
 
+// The default flipped to false when polling stopped costing anything: holding
+// back while Claude Code was closed left readers showing stale numbers.
 func TestIsOnlyWhenActive_Nil(t *testing.T) {
 	api := API{OnlyWhenActive: nil}
-	if !api.IsOnlyWhenActive() {
-		t.Error("expected true when nil (default)")
+	if api.IsOnlyWhenActive() {
+		t.Error("expected false when nil (default)")
 	}
 }
 

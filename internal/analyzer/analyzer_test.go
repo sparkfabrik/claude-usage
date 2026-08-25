@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Monska85/claude-usage/internal/reader"
+	"github.com/sparkfabrik/claude-usage/internal/reader"
 )
 
 func makeEntry(ts time.Time, model string, input, output, cacheW, cacheR int, session string) reader.UsageEntry {

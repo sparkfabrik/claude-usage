@@ -31,6 +31,18 @@ PlasmoidItem {
         return claudeOrange;
     }
 
+    property var modelLimits: []
+    property string todayLine: ""
+
+    // formatTokens renders a token count compactly: 282200000 becomes "282.2M".
+    function formatTokens(n) {
+        if (typeof n !== "number" || !isFinite(n)) return "0";
+        if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+        return String(n);
+    }
+
     function glyphForPct(pct) {
         if (pct < 50) return "◔";
         if (pct < 75) return "◑";
@@ -54,6 +66,15 @@ PlasmoidItem {
             claudeRunning = data.claude_running !== false;
             errorMsg = data.error || "";
             authState = data.auth || "unknown";
+            // Model-scoped windows arrive only from the OAuth source; the
+            // header fallback and older CLI versions report none.
+            modelLimits = Array.isArray(data.limits)
+                ? data.limits.filter(function (limit) { return limit && limit.model; })
+                : [];
+            todayLine = data.today && typeof data.today.tokens === "number"
+                ? "Today: " + formatTokens(data.today.tokens) + " tokens · "
+                  + (data.today.messages || 0) + " messages"
+                : "";
             hasData = true;
         } catch (e) {
             hasData = false;
@@ -154,6 +175,24 @@ PlasmoidItem {
             text: "7d: " + root.wPct + "%  ⟳ " + root.wReset
             color: root.colorForPct(root.wPct)
             font.pixelSize: 12
+        }
+
+        Repeater {
+            model: root.modelLimits
+
+            PlasmaComponents.Label {
+                required property var modelData
+                text: modelData.title + ": " + modelData.pct + "%  ⟳ " + modelData.reset
+                color: root.colorForPct(modelData.pct)
+                font.pixelSize: 12
+            }
+        }
+
+        PlasmaComponents.Label {
+            visible: root.todayLine !== ""
+            text: root.todayLine
+            font.pixelSize: 11
+            opacity: 0.7
         }
 
         PlasmaComponents.Label {

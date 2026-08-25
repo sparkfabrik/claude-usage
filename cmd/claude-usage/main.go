@@ -11,15 +11,17 @@ import (
 
 	flag "github.com/spf13/pflag"
 
-	"github.com/Monska85/claude-usage/internal/analyzer"
-	"github.com/Monska85/claude-usage/internal/auth"
-	"github.com/Monska85/claude-usage/internal/cache"
-	"github.com/Monska85/claude-usage/internal/config"
-	"github.com/Monska85/claude-usage/internal/dashboard"
-	"github.com/Monska85/claude-usage/internal/poller"
-	"github.com/Monska85/claude-usage/internal/pricing"
-	"github.com/Monska85/claude-usage/internal/process"
-	"github.com/Monska85/claude-usage/internal/reader"
+	"github.com/sparkfabrik/claude-usage/internal/analyzer"
+	"github.com/sparkfabrik/claude-usage/internal/auth"
+	"github.com/sparkfabrik/claude-usage/internal/cache"
+	"github.com/sparkfabrik/claude-usage/internal/config"
+	"github.com/sparkfabrik/claude-usage/internal/dashboard"
+	"github.com/sparkfabrik/claude-usage/internal/poller"
+	"github.com/sparkfabrik/claude-usage/internal/pricing"
+	"github.com/sparkfabrik/claude-usage/internal/process"
+	"github.com/sparkfabrik/claude-usage/internal/reader"
+	"github.com/sparkfabrik/claude-usage/internal/stats"
+	"github.com/sparkfabrik/claude-usage/internal/usage"
 )
 
 // Build-time variables injected via ldflags.
@@ -67,7 +69,45 @@ func applyBuildInfo(info *debug.BuildInfo) {
 // defaultPollTimeout is the HTTP timeout for API polling requests.
 const defaultPollTimeout = 15 * time.Second
 
+// StatusLimit is one rate-limit window in the status payload. The session and
+// weekly windows are always present; model-scoped windows appear only when the
+// OAuth usage endpoint reports them.
+type StatusLimit struct {
+	Key   string `json:"key"`
+	Title string `json:"title"`
+	Model string `json:"model,omitempty"`
+	Pct   int    `json:"pct"`
+	Reset string `json:"reset"`
+	Color string `json:"color"`
+}
+
+// StatusDay is one day of token usage.
+type StatusDay struct {
+	Date    string `json:"date"`
+	Weekday string `json:"weekday"`
+	Tokens  int    `json:"tokens"`
+	Today   bool   `json:"today"`
+}
+
+// StatusModel is one model's token usage.
+type StatusModel struct {
+	Name   string `json:"name"`
+	Tokens int    `json:"tokens"`
+}
+
+// StatusToday summarizes the current local day.
+type StatusToday struct {
+	Tokens   int     `json:"tokens"`
+	Messages int     `json:"messages"`
+	Sessions int     `json:"sessions"`
+	CostUSD  float64 `json:"cost_usd"`
+}
+
 // StatusResponse is the JSON structure output by --status mode.
+//
+// The first ten fields are the original contract and are always populated, so
+// readers written against it keep working untouched. Everything below them is
+// additive.
 type StatusResponse struct {
 	CPct          int    `json:"c_pct"`
 	CReset        string `json:"c_reset"`
@@ -79,6 +119,18 @@ type StatusResponse struct {
 	ClaudeRunning bool   `json:"claude_running"`
 	Auth          string `json:"auth"`
 	Error         string `json:"error,omitempty"`
+
+	// Source is "oauth" or "headers", telling a reader whether model-scoped
+	// windows can be expected.
+	Source string `json:"source,omitempty"`
+	// Limits carries every open window, including model-scoped ones.
+	Limits []StatusLimit `json:"limits,omitempty"`
+	// RecentDays is seven days of token totals, oldest first.
+	RecentDays []StatusDay `json:"recent_days,omitempty"`
+	// Models is per-model token usage, heaviest first.
+	Models []StatusModel `json:"models,omitempty"`
+	// Today summarizes the current local day.
+	Today *StatusToday `json:"today,omitempty"`
 }
 
 // printConfigFooter appends the Configuration: block to --help output: the
@@ -150,7 +202,7 @@ func main() {
 	// --status --no-poll needs no credentials at all (pure cache read).
 	// Defer auth.Load() so the fast path avoids disk I/O for credentials.
 	if *status && *noPoll {
-		runStatus(os.Stdout, nil, cfg, cachePath, true, false, "")
+		runStatus(os.Stdout, nil, cfg, cachePath, "", true, false, "")
 		return
 	}
 
@@ -169,7 +221,7 @@ func main() {
 	}
 
 	if *status {
-		runStatus(os.Stdout, creds, cfg, cachePath, false, *forcePoll, "")
+		runStatus(os.Stdout, creds, cfg, cachePath, "", false, *forcePoll, "")
 		return
 	}
 
@@ -206,7 +258,7 @@ func runPollOnly(creds *auth.Credentials, cfg *config.Config, cachePath, apiURL 
 }
 
 // runStatus outputs JSON status for the GNOME extension or other consumers.
-func runStatus(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath string, noPoll, forcePoll bool, apiURL string) {
+func runStatus(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath, projectsPath string, noPoll, forcePoll bool, apiURL string) {
 	var pollErr string
 
 	cached := cache.Read(cachePath)
@@ -222,12 +274,14 @@ func runStatus(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePa
 			resp := buildStatusResponse(nil, cfg, "no cached data available")
 			resp.ClaudeRunning = claudeRunning
 			resp.Auth = authState
+			attachStats(&resp, cfg, cachePath, projectsPath, false)
 			_ = outputJSON(w, resp)
 			return
 		}
 		resp := buildStatusResponse(cached, cfg, "")
 		resp.ClaudeRunning = claudeRunning
 		resp.Auth = authState
+		attachStats(&resp, cfg, cachePath, projectsPath, false)
 		_ = outputJSON(w, resp)
 		return
 	}
@@ -240,7 +294,7 @@ func runStatus(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePa
 	needPoll := forcePoll || cached == nil || !cached.IsFresh(cfg.API.StaleAfter)
 
 	if canPoll && needPoll {
-		q, err := poller.Poll(creds.AccessToken, cfg.API.Model, defaultPollTimeout, apiURL)
+		q, err := usage.Collect(creds.AccessToken, cfg.API.UsageEndpoint, cfg.API.Model, apiURL, defaultPollTimeout)
 		if err != nil {
 			pollErr = err.Error()
 		} else {
@@ -262,6 +316,9 @@ func runStatus(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePa
 	resp := buildStatusResponse(cached, cfg, pollErr)
 	resp.ClaudeRunning = claudeRunning
 	resp.Auth = authState
+	// A forced poll also forces the transcript rescan: that is the explicit
+	// refresh, as opposed to the cheap periodic one readers make.
+	attachStats(&resp, cfg, cachePath, projectsPath, forcePoll)
 	_ = outputJSON(w, resp)
 }
 
@@ -311,8 +368,52 @@ func buildStatusResponse(q *cache.QuotaCache, cfg *config.Config, errMsg string)
 	resp.WReset = dashboard.FormatTimeRemaining(q.MinutesToReset7d())
 	resp.WColor = colorForPct(wPct, cfg)
 	resp.Stale = q.IsStale()
+	resp.Source = q.Source
+
+	// Older cache files predate the windows field; rebuild it so the limits
+	// list is populated whatever wrote the cache.
+	q.SyncWindows()
+	for _, w := range q.OpenWindows(time.Now()) {
+		pct := int(math.Round(w.Utilization * 100))
+		resp.Limits = append(resp.Limits, StatusLimit{
+			Key:   w.Key,
+			Title: w.Title,
+			Model: w.Model,
+			Pct:   pct,
+			Reset: dashboard.FormatTimeRemaining(w.MinutesToReset()),
+			Color: colorForPct(pct, cfg),
+		})
+	}
 
 	return resp
+}
+
+// attachStats fills the local-transcript half of the status payload. A failure
+// is not fatal: the quota half is what readers show by default, so the fields
+// are simply left out.
+func attachStats(resp *StatusResponse, cfg *config.Config, cachePath, projectsPath string, force bool) {
+	s, err := stats.Load(stats.DefaultPath(cachePath), projectsPath, stats.DefaultTTLSeconds, force, buildPricingOverrides(cfg))
+	if s == nil {
+		if err != nil && resp.Error == "" {
+			resp.Error = err.Error()
+		}
+		return
+	}
+
+	for _, d := range s.RecentDays {
+		resp.RecentDays = append(resp.RecentDays, StatusDay{
+			Date: d.Date, Weekday: d.Weekday, Tokens: d.Tokens, Today: d.Today,
+		})
+	}
+	for _, m := range s.Models {
+		resp.Models = append(resp.Models, StatusModel{Name: m.Name, Tokens: m.Tokens})
+	}
+	resp.Today = &StatusToday{
+		Tokens:   s.Today.Tokens,
+		Messages: s.Today.Messages,
+		Sessions: s.Today.Sessions,
+		CostUSD:  s.Today.CostUSD,
+	}
 }
 
 // colorForPct returns a hex color string based on utilization percentage and config thresholds.

@@ -5,9 +5,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"io/fs"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,16 +16,22 @@ import (
 
 // UsageEntry is a single usage record from a JSONL assistant message.
 type UsageEntry struct {
-	Timestamp              time.Time
-	Model                  string
-	InputTokens            int
-	OutputTokens           int
-	CacheCreationTokens    int
-	CacheReadTokens        int
-	MessageID              string
-	RequestID              string
-	SessionID              string
-	Project                string
+	Timestamp           time.Time
+	Model               string
+	InputTokens         int
+	OutputTokens        int
+	CacheCreationTokens int
+	CacheReadTokens     int
+	// MessageID is the assistant message id from message.id. It is stable
+	// across resumed and forked sessions, where the same message reappears
+	// under a new uuid.
+	MessageID string
+	// EntryUUID is the transcript line uuid, used only when no message id
+	// is present.
+	EntryUUID string
+	RequestID string
+	SessionID string
+	Project   string
 }
 
 // TotalTokens returns the sum of all token types.
@@ -33,9 +39,16 @@ func (e *UsageEntry) TotalTokens() int {
 	return e.InputTokens + e.OutputTokens + e.CacheCreationTokens + e.CacheReadTokens
 }
 
-// DedupKey returns a unique key for deduplication.
+// DedupKey returns a unique key for deduplication. The assistant message id
+// is preferred: it survives a session being resumed or forked, where the same
+// message is written again under a fresh uuid and would otherwise be counted
+// twice. The uuid and request id are the fallback for transcripts that carry
+// no message id.
 func (e *UsageEntry) DedupKey() string {
-	return e.MessageID + ":" + e.RequestID
+	if e.MessageID != "" {
+		return e.MessageID
+	}
+	return e.EntryUUID + ":" + e.RequestID
 }
 
 // ProjectsPath returns the default projects directory.
@@ -92,6 +105,7 @@ type jsonlRecord struct {
 	UUID      string          `json:"uuid"`
 	RequestID string          `json:"requestId"`
 	Message   struct {
+		ID    string `json:"id"`
 		Model string `json:"model"`
 		Usage struct {
 			InputTokens              int `json:"input_tokens"`
@@ -142,26 +156,29 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 			continue
 		}
 
-		key := rec.UUID + ":" + rec.RequestID
-		if key != ":" && seen[key] {
-			continue
-		}
-		if key != ":" {
-			seen[key] = true
-		}
-
-		*entries = append(*entries, UsageEntry{
+		entry := UsageEntry{
 			Timestamp:           ts,
 			Model:               rec.Message.Model,
 			InputTokens:         usage.InputTokens,
 			OutputTokens:        usage.OutputTokens,
 			CacheCreationTokens: usage.CacheCreationInputTokens,
 			CacheReadTokens:     usage.CacheReadInputTokens,
-			MessageID:           rec.UUID,
+			MessageID:           rec.Message.ID,
+			EntryUUID:           rec.UUID,
 			RequestID:           rec.RequestID,
 			SessionID:           sessionID,
 			Project:             project,
-		})
+		}
+
+		key := entry.DedupKey()
+		if key != ":" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+
+		*entries = append(*entries, entry)
 	}
 	// Check for scanner errors (e.g. line too long, I/O error).
 	if err := scanner.Err(); err != nil {

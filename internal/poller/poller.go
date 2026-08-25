@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Monska85/claude-usage/internal/cache"
+	"github.com/sparkfabrik/claude-usage/internal/cache"
 )
 
 // DefaultAPIURL is the production Anthropic Messages API endpoint.
