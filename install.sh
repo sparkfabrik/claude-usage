@@ -7,6 +7,8 @@
 #   INSTALL_DIR=/custom/path ./install.sh
 #   ./install.sh --statusline          # opt in to Claude Code statusline
 #   CLAUDE_USAGE_STATUSLINE=1 ./install.sh
+#   ./install.sh --tray                # opt in to macOS tray auto-start hooks
+#   CLAUDE_USAGE_TRAY=1 ./install.sh
 #   ./install.sh --no-reader           # opt out of desktop reader wiring
 #   CLAUDE_USAGE_READER=0 ./install.sh
 #   ./install.sh --uninstall
@@ -16,6 +18,9 @@
 #   INSTALL_DIR              — Installation directory (default: ~/.local/share/claude-usage)
 #   CLAUDE_USAGE_STATUSLINE  — Set to 1 to register the Claude Code statusLine
 #                              in ~/.claude/settings.json (default: off; opt-in)
+#   CLAUDE_USAGE_TRAY        — Set to 1 to register the macOS tray session hooks
+#                              (tray starts/stops with Claude Code sessions).
+#                              Without it, existing hooks are removed (default: off; opt-in)
 #   CLAUDE_USAGE_READER      — Set to 0 to skip desktop reader wiring (GNOME/KDE/
 #                              Waybar/macOS tray). Reader files are still placed
 #                              on disk; only the wiring is skipped (default: on)
@@ -112,17 +117,65 @@ relink() {
   changed "${desc}"
 }
 
+# Remove the macOS tray session hooks from ~/.claude/settings.json.
+# Prints CHANGED only when an entry was actually removed.
+remove_session_hooks() {
+  local settings="${HOME}/.claude/settings.json"
+  local hooks_dir="${INSTALL_DIR}/hooks"
+  if [ -f "${settings}" ] && grep -q "${hooks_dir}/start.sh" "${settings}" 2>/dev/null; then
+    if python3 - "${settings}" "${hooks_dir}/start.sh" "${hooks_dir}/stop.sh" <<'PYEOF_UNHOOK'
+import json, sys
+
+path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    cfg = json.load(f)
+
+if not isinstance(cfg, dict):
+    sys.exit(0)
+hooks = cfg.get("hooks")
+if not isinstance(hooks, dict):
+    sys.exit(0)
+for section, cmd in [("SessionStart", start_cmd), ("SessionEnd", stop_cmd)]:
+    entries = hooks.get(section)
+    if not isinstance(entries, list):
+        continue
+    cleaned = []
+    for e in entries:
+        if isinstance(e, dict):
+            inner = [h for h in e.get("hooks", [])
+                     if not (isinstance(h, dict) and h.get("command") == cmd)]
+            if inner:
+                cleaned.append({**e, "hooks": inner})
+        else:
+            cleaned.append(e)
+    hooks[section] = cleaned
+
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYEOF_UNHOOK
+    then
+      changed "session hooks removed from ${settings}"
+    else
+      echo "WARNING: could not update ${settings} (invalid JSON?); skipping hook removal"
+    fi
+  fi
+}
+
 # --- Argument parsing -----------------------------------------------------
 # These toggles gate wiring, not provisioning: reader and statusline files are
 # always placed on disk and symlinked; only the settings.json registration
-# (statusline) and the desktop reader wiring (--no-reader) are gated here.
+# (statusline), the macOS tray session hooks (--tray) and the desktop reader
+# wiring (--no-reader) are gated here.
 INSTALL_STATUSLINE="${CLAUDE_USAGE_STATUSLINE:-0}"
 INSTALL_READER="${CLAUDE_USAGE_READER:-1}"
+INSTALL_TRAY="${CLAUDE_USAGE_TRAY:-0}"
 UNINSTALL=false
 for arg in "$@"; do
   case "${arg}" in
     --uninstall)  UNINSTALL=true ;;
     --statusline) INSTALL_STATUSLINE=1 ;;
+    --tray)       INSTALL_TRAY=1 ;;
     --no-reader)  INSTALL_READER=0 ;;
     *)            die "Unknown argument: ${arg}" ;;
   esac
@@ -130,6 +183,10 @@ done
 case "${INSTALL_STATUSLINE}" in
   1|true|TRUE|yes|YES|on|ON) INSTALL_STATUSLINE=1 ;;
   *)                         INSTALL_STATUSLINE=0 ;;
+esac
+case "${INSTALL_TRAY}" in
+  1|true|TRUE|yes|YES|on|ON) INSTALL_TRAY=1 ;;
+  *)                         INSTALL_TRAY=0 ;;
 esac
 case "${INSTALL_READER}" in
   0|false|FALSE|no|NO|off|OFF) INSTALL_READER=0 ;;
@@ -162,45 +219,7 @@ PYEOF2
   fi
 
   # Remove session hooks from settings.json
-  HOOKS_DIR="${INSTALL_DIR}/hooks"
-  if [ -f "${SETTINGS}" ] && grep -q "${HOOKS_DIR}/start.sh" "${SETTINGS}" 2>/dev/null; then
-    if python3 - "${SETTINGS}" "${HOOKS_DIR}/start.sh" "${HOOKS_DIR}/stop.sh" <<'PYEOF_UNHOOK'
-import json, sys
-
-path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(path) as f:
-    cfg = json.load(f)
-
-if not isinstance(cfg, dict):
-    sys.exit(0)
-hooks = cfg.get("hooks")
-if not isinstance(hooks, dict):
-    sys.exit(0)
-for section, cmd in [("SessionStart", start_cmd), ("SessionEnd", stop_cmd)]:
-    entries = hooks.get(section)
-    if not isinstance(entries, list):
-        continue
-    cleaned = []
-    for e in entries:
-        if isinstance(e, dict):
-            inner = [h for h in e.get("hooks", [])
-                     if not (isinstance(h, dict) and h.get("command") == cmd)]
-            if inner:
-                cleaned.append({**e, "hooks": inner})
-        else:
-            cleaned.append(e)
-    hooks[section] = cleaned
-
-with open(path, "w") as f:
-    json.dump(cfg, f, indent=2)
-    f.write("\n")
-PYEOF_UNHOOK
-    then
-      changed "session hooks removed from ${SETTINGS}"
-    else
-      echo "WARNING: could not update ${SETTINGS} (invalid JSON?); skipping hook removal"
-    fi
-  fi
+  remove_session_hooks
 
   # Kill tray if running
   pkill -x "claude-usage-tray" 2>/dev/null || true
@@ -375,37 +394,46 @@ fi
 
 case "${READER}" in
   macos)
-    # Tray already installed above; register session hooks
-    HOOKS_DIR="${INSTALL_DIR}/hooks"
-    HOOKS_SRC="${INSTALL_DIR}/readers/hooks"
-    mkdir -p "${HOOKS_DIR}"
-    if [ -d "${HOOKS_SRC}" ]; then
-      cp "${HOOKS_SRC}/start.sh" "${HOOKS_DIR}/start.sh"
-      cp "${HOOKS_SRC}/stop.sh" "${HOOKS_DIR}/stop.sh"
-      chmod +x "${HOOKS_DIR}/start.sh" "${HOOKS_DIR}/stop.sh"
+    if [ "${INSTALL_TRAY}" != "1" ]; then
+      # Tray auto-start is opt-in: drop hooks left by earlier installs.
+      remove_session_hooks
+      echo ""
+      echo "macOS tray binary installed but not auto-started."
+      echo "  Launch it manually: claude-usage-tray"
+      echo "  Auto-start with Claude Code sessions: re-run with --tray (or CLAUDE_USAGE_TRAY=1)."
+      echo ""
     else
-      echo "WARNING: hooks source not found at ${HOOKS_SRC}"
-      echo "  Contents of ${INSTALL_DIR}/readers/:"
-      ls "${INSTALL_DIR}/readers/" 2>&1 || true
-    fi
-
-    # Register hooks in ~/.claude/settings.json (if hook scripts exist)
-    START_CMD="${HOOKS_DIR}/start.sh"
-    STOP_CMD="${HOOKS_DIR}/stop.sh"
-
-    if [ -x "${START_CMD}" ] && [ -x "${STOP_CMD}" ]; then
-      HOOKS_NEEDED=false
-
-      if [ ! -f "${SETTINGS}" ]; then
-        mkdir -p "$(dirname "${SETTINGS}")"
-        echo '{}' > "${SETTINGS}"
-        HOOKS_NEEDED=true
-      elif ! grep -q "${HOOKS_DIR}/start.sh" "${SETTINGS}" 2>/dev/null; then
-        HOOKS_NEEDED=true
+      # Tray already installed above; register session hooks
+      HOOKS_DIR="${INSTALL_DIR}/hooks"
+      HOOKS_SRC="${INSTALL_DIR}/readers/hooks"
+      mkdir -p "${HOOKS_DIR}"
+      if [ -d "${HOOKS_SRC}" ]; then
+        cp "${HOOKS_SRC}/start.sh" "${HOOKS_DIR}/start.sh"
+        cp "${HOOKS_SRC}/stop.sh" "${HOOKS_DIR}/stop.sh"
+        chmod +x "${HOOKS_DIR}/start.sh" "${HOOKS_DIR}/stop.sh"
+      else
+        echo "WARNING: hooks source not found at ${HOOKS_SRC}"
+        echo "  Contents of ${INSTALL_DIR}/readers/:"
+        ls "${INSTALL_DIR}/readers/" 2>&1 || true
       fi
 
-      if [ "${HOOKS_NEEDED}" = true ]; then
-        if python3 - "${SETTINGS}" "${START_CMD}" "${STOP_CMD}" <<'PYEOF_HOOKS'
+      # Register hooks in ~/.claude/settings.json (if hook scripts exist)
+      START_CMD="${HOOKS_DIR}/start.sh"
+      STOP_CMD="${HOOKS_DIR}/stop.sh"
+
+      if [ -x "${START_CMD}" ] && [ -x "${STOP_CMD}" ]; then
+        HOOKS_NEEDED=false
+
+        if [ ! -f "${SETTINGS}" ]; then
+          mkdir -p "$(dirname "${SETTINGS}")"
+          echo '{}' > "${SETTINGS}"
+          HOOKS_NEEDED=true
+        elif ! grep -q "${HOOKS_DIR}/start.sh" "${SETTINGS}" 2>/dev/null; then
+          HOOKS_NEEDED=true
+        fi
+
+        if [ "${HOOKS_NEEDED}" = true ]; then
+          if python3 - "${SETTINGS}" "${START_CMD}" "${STOP_CMD}" <<'PYEOF_HOOKS'
 import json, sys
 
 path, start_cmd, stop_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -442,19 +470,20 @@ with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 PYEOF_HOOKS
-        then
-          changed "session hooks registered"
-        else
-          echo "WARNING: could not register session hooks in ${SETTINGS} (invalid JSON?); tray auto-start/stop disabled"
+          then
+            changed "session hooks registered"
+          else
+            echo "WARNING: could not register session hooks in ${SETTINGS} (invalid JSON?); tray auto-start/stop disabled"
+          fi
         fi
       fi
-    fi
 
-    changed "macOS tray reader installed"
-    echo ""
-    echo "macOS tray app installed with session hooks."
-    echo "The tray will auto-start/stop with Claude Code sessions."
-    echo ""
+      changed "macOS tray reader installed"
+      echo ""
+      echo "macOS tray app installed with session hooks."
+      echo "The tray will auto-start/stop with Claude Code sessions."
+      echo ""
+    fi
     ;;
   gnome)
     EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/claude-usage@claude-code-usage"

@@ -86,6 +86,7 @@ curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/insta
 | Flag / env var                               | Default                       | Effect                                                                                             |
 | -------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------- |
 | `--statusline` / `CLAUDE_USAGE_STATUSLINE=1` | off                           | Register the Claude Code statusLine in `~/.claude/settings.json` (opt-in).                         |
+| `--tray` / `CLAUDE_USAGE_TRAY=1`             | off                           | macOS only: register the session hooks that start and stop the tray with Claude Code (opt-in).     |
 | `--no-reader` / `CLAUDE_USAGE_READER=0`      | reader on                     | Skip wiring the desktop reader. Reader files are still placed on disk; only the wiring is skipped. |
 | `CLAUDE_USAGE_VERSION=<tag>`                 | latest                        | Pin a specific release.                                                                            |
 | `INSTALL_DIR=<path>`                         | `~/.local/share/claude-usage` | Override the installation directory.                                                               |
@@ -93,6 +94,9 @@ curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/insta
 ```bash
 # Enable the Claude Code statusline as well as the desktop reader
 curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_STATUSLINE=1 bash
+
+# macOS: start the tray automatically with Claude Code sessions
+curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_TRAY=1 bash
 
 # CLI + statusline only, no desktop reader wiring
 curl -fsSL https://raw.githubusercontent.com/sparkfabrik/claude-usage/main/install.sh | CLAUDE_USAGE_READER=0 CLAUDE_USAGE_STATUSLINE=1 bash
@@ -130,7 +134,7 @@ bash install.sh
    - **GNOME** → symlinks the shell extension, prints enable command
    - **KDE** → installs plasmoid via `kpackagetool6`, prints widget instructions
    - **Waybar** → symlinks the module script, prints config snippet
-   - **macOS** → installs the tray binary, prints launch instructions
+   - **macOS** → installs the tray binary, prints launch instructions; registers the auto-start session hooks only with `--tray` / `CLAUDE_USAGE_TRAY=1`, and removes them otherwise
 4. Symlinks the terminal statusline script (always), but only registers it in `~/.claude/settings.json` when `--statusline` / `CLAUDE_USAGE_STATUSLINE=1` is given
 
 ## Usage
@@ -206,6 +210,8 @@ Displays a glyph + percentages: `◑ 5h:42% 7d:67%`
 - Hides when Claude is not running
 
 ### macOS tray
+
+The tray does not start on its own. Launch it with `claude-usage-tray`, or install with `--tray` / `CLAUDE_USAGE_TRAY=1` to start and stop it with Claude Code sessions.
 
 Menu bar item showing "C:X% W:Y%". Click for dropdown with reset times, auth state (shown when not valid), "Refresh Now", and "Quit".
 
