@@ -118,11 +118,12 @@ relink() {
 }
 
 # Remove the macOS tray session hooks from ~/.claude/settings.json.
-# Prints CHANGED only when an entry was actually removed.
+# Does nothing unless settings.json references the hook scripts; reports
+# CHANGED once the entries are removed.
 remove_session_hooks() {
   local settings="${HOME}/.claude/settings.json"
   local hooks_dir="${INSTALL_DIR}/hooks"
-  if [ -f "${settings}" ] && grep -q "${hooks_dir}/start.sh" "${settings}" 2>/dev/null; then
+  if [ -f "${settings}" ] && grep -Fq "${hooks_dir}/start.sh" "${settings}" 2>/dev/null; then
     if python3 - "${settings}" "${hooks_dir}/start.sh" "${hooks_dir}/stop.sh" <<'PYEOF_UNHOOK'
 import json, sys
 
@@ -428,7 +429,7 @@ case "${READER}" in
           mkdir -p "$(dirname "${SETTINGS}")"
           echo '{}' > "${SETTINGS}"
           HOOKS_NEEDED=true
-        elif ! grep -q "${HOOKS_DIR}/start.sh" "${SETTINGS}" 2>/dev/null; then
+        elif ! grep -Fq "${HOOKS_DIR}/start.sh" "${SETTINGS}" 2>/dev/null; then
           HOOKS_NEEDED=true
         fi
 
