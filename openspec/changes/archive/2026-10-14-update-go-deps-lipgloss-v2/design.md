@@ -66,4 +66,4 @@ The fork is maintained by the YAML organization and keeps the same API, so the c
 - [lipgloss v2 table rendering differs in width or padding] → Compare the dashboard output with the v1 build, piped and in a terminal, before merging.
 - [Contributors on Go older than 1.26 can no longer build] → Documented in `AGENTS.md`; release binaries are unaffected.
 - [golangci-lint 2.14.0 enables new checks that flag existing code] → Fix the findings in the golangci-lint commit, or exclude a rule with a reason in `.golangci.yml`.
-- [Color behavior on a real TTY cannot be checked by `go test`] → Unit tests cover the non-TTY path; a manual run in a terminal and with `NO_COLOR=1` covers the rest.
+- [Color behavior on a real TTY cannot be checked by `go test`] → Unit tests cover the non-TTY path and, through a faked terminal (`TTY_FORCE` appended after normalization), the color depths and the `NO_COLOR` and `CLICOLOR` rules; a manual run on a real terminal covers real TTY detection.
