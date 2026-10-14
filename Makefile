@@ -35,6 +35,7 @@ $(GOLANGCI_LINT):
 	@tar xzf $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) -C $(BIN_DIR) --strip-components=1 \
 		golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH)/golangci-lint
 	@mv $(BIN_DIR)/golangci-lint $(GOLANGCI_LINT)
+	@# tar and mv above already replaced any legacy unversioned binary.
 	@# Remove every other golangci-lint-* file, such as older pinned binaries and the downloaded tarball.
 	@for f in $(BIN_DIR)/golangci-lint-*; do \
 		if [ -e "$${f}" ] && [ "$${f}" != "$(GOLANGCI_LINT)" ]; then rm -f "$${f}"; fi; \
