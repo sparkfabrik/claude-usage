@@ -181,6 +181,13 @@ claude-usage -c /path/to/config.yaml      # shorthand
 claude-usage --help
 ```
 
+The dashboard adapts its colors to the output:
+
+- **Piped or redirected:** plain text, unless `CLICOLOR_FORCE` is set to a value other than `0`.
+- **`NO_COLOR`:** any non-empty value turns colors off, even with `CLICOLOR_FORCE`. Bold and faint text stay.
+- **`CLICOLOR=0`:** turns colors off unless `CLICOLOR_FORCE` overrides it.
+- **Older terminals:** colors are reduced to what the terminal supports.
+
 ### GNOME Shell extension
 
 Once enabled, the extension shows a panel indicator:
