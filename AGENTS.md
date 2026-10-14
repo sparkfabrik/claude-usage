@@ -33,7 +33,7 @@ The project should transition from Makefile to a Justfile.
 
 | Path                                              | Purpose      | Notes                                                              |
 | ------------------------------------------------- | ------------ | ------------------------------------------------------------------ |
-| `~/.config/claude-code-usage/config.yaml`         | Config       | YAML, `gopkg.in/yaml.v3`. XDG-aware (`XDG_CONFIG_HOME`)            |
+| `~/.config/claude-code-usage/config.yaml`         | Config       | YAML, `go.yaml.in/yaml/v3`. XDG-aware (`XDG_CONFIG_HOME`)          |
 | `~/.config/claude-code-usage/config.default.yaml` | Config (ref) | Read-only reference; install-provisioned, never loaded by the tool |
 | `~/.cache/claude-code-usage/quota.json`           | Cache        | XDG, configurable via `cache.path`, dir `0700`                     |
 | `~/.claude/.credentials.json`                     | Credentials  | Read-only. **Never write to `~/.claude/`.**                        |

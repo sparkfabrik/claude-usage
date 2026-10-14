@@ -8,7 +8,7 @@
 ## 2. Dependencies
 
 - [x] 2.1 Bump `golang.org/x/sys` to its latest release, run `go mod tidy` and `go mod verify`, and verify govulncheck no longer reports GO-2026-5024
-- [ ] 2.2 Replace `gopkg.in/yaml.v3` with `go.yaml.in/yaml/v3` in `internal/config`, update the module name in `AGENTS.md`, run `go mod tidy` and `go mod verify`, and verify the config tests pass
+- [x] 2.2 Replace `gopkg.in/yaml.v3` with `go.yaml.in/yaml/v3` in `internal/config`, update the module name in `AGENTS.md`, run `go mod tidy` and `go mod verify`, and verify the config tests pass
 
 ## 3. lipgloss v2
 
