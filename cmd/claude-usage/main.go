@@ -7,8 +7,10 @@ import (
 	"math"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/colorprofile"
 	flag "github.com/spf13/pflag"
 
 	"github.com/sparkfabrik/claude-usage/internal/analyzer"
@@ -427,8 +429,35 @@ func colorForPct(pct int, cfg *config.Config) string {
 	return "#32c850"
 }
 
+// newDashboardWriter adapts the dashboard's ANSI styling to w: escape
+// sequences are stripped when w is not a terminal, colors are dropped when
+// NO_COLOR is set, and colors are downgraded to what the terminal supports.
+func newDashboardWriter(w io.Writer, environ []string) io.Writer {
+	// colorprofile parses NO_COLOR as a boolean and lets CLICOLOR_FORCE
+	// override it on non-terminals, but https://no-color.org disables colors
+	// for any non-empty value (e.g. NO_COLOR=yes), whatever else is set.
+	noColor := false
+	for _, kv := range environ {
+		if v, ok := strings.CutPrefix(kv, "NO_COLOR="); ok && v != "" {
+			noColor = true
+		}
+	}
+	env := make([]string, 0, len(environ))
+	for _, kv := range environ {
+		if noColor && (strings.HasPrefix(kv, "NO_COLOR=") || strings.HasPrefix(kv, "CLICOLOR_FORCE=")) {
+			continue
+		}
+		env = append(env, kv)
+	}
+	if noColor {
+		env = append(env, "NO_COLOR=1")
+	}
+	return colorprofile.NewWriter(w, env)
+}
+
 // runDashboard renders the full CLI dashboard.
 func runDashboard(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath, projectsPath string, noPoll, forcePoll, noCost bool, period, apiURL string) error {
+	w = newDashboardWriter(w, os.Environ())
 	showCost := cfg.Display.ShowCost && !noCost
 
 	fmt.Fprintln(w, dashboard.RenderAccount(creds))

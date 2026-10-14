@@ -37,6 +37,10 @@ Alternatives considered:
 
 With v1, `NO_COLOR` produced fully plain text. colorprofile maps `NO_COLOR` to its ASCII profile, which drops colors but keeps bold and faint. This matches the `NO_COLOR` convention (no color, other styling allowed), so the spec requires only that color sequences are absent.
 
+### Normalize `NO_COLOR` before detection
+
+colorprofile reads `NO_COLOR` as a boolean, so `NO_COLOR=yes` would leave colors on, and it lets `CLICOLOR_FORCE` override `NO_COLOR` when the output is not a terminal. lipgloss v1 and the no-color.org convention treat any non-empty `NO_COLOR` as off. The dashboard writer therefore rewrites the environment it hands to colorprofile: any non-empty `NO_COLOR` becomes `NO_COLOR=1`, and `CLICOLOR_FORCE` is dropped while `NO_COLOR` is set.
+
 ### Go 1.26 as the minimum
 
 Go supports the two newest releases, currently 1.27 and 1.26. lipgloss v2 requires Go 1.25 and recent `golang.org/x/sys` releases require a newer directive as well, so 1.26 covers every upgrade while staying one release behind the newest. No `toolchain` line is added; CI installs the version in the `go` directive.

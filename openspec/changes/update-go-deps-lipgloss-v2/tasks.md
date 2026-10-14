@@ -13,7 +13,7 @@
 ## 3. lipgloss v2
 
 - [x] 3.1 Switch `internal/dashboard` to `charm.land/lipgloss/v2` and its `table` subpackage, run `go mod tidy` and `go mod verify`, and verify `go build ./...` and the dashboard tests pass
-- [ ] 3.2 Wrap the writer in `runDashboard` with a colorprofile writer, and verify with new tests that dashboard output written to a non-terminal contains no ANSI escape sequences, including when `TERM` advertises color
+- [x] 3.2 Wrap the writer in `runDashboard` with a colorprofile writer, and verify with new tests that dashboard output written to a non-terminal contains no ANSI escape sequences (including when `TERM` advertises color), that `NO_COLOR` with any non-empty value drops colors even with `CLICOLOR_FORCE`, and that colors are downgraded to the terminal depth
 - [ ] 3.3 Run the dashboard in a color terminal, piped through `cat`, and with `NO_COLOR=1`, and verify each matches `specs/dashboard-output/spec.md`
 
 ## 4. Integration

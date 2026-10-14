@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1282,6 +1283,114 @@ func TestRunDashboard_NonexistentProjectsDir(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "No usage data found") {
 		t.Errorf("expected 'No usage data found' for nonexistent dir, got:\n%s", output)
+	}
+}
+
+func TestRunDashboard_NoEscapesWhenNotTerminal(t *testing.T) {
+	// A color-capable TERM must not leak escape codes into a pipe or file.
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("CLICOLOR_FORCE", "")
+	t.Setenv("TTY_FORCE", "")
+	t.Setenv("NO_COLOR", "")
+
+	var buf bytes.Buffer
+	cfg := config.Default()
+	cfg.API.Enabled = false
+	cachePath := t.TempDir() + "/quota.json"
+	projectsDir := createFakeProjectsDir(t)
+
+	if err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, false, "", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if strings.Contains(output, "\x1b") {
+		t.Errorf("expected no ANSI escape sequences, got:\n%q", output)
+	}
+	if !strings.Contains(output, "Usage by Period") {
+		t.Errorf("expected dashboard content, got:\n%s", output)
+	}
+}
+
+// styled is bold text in 256-color red (196), as lipgloss renders it.
+const styled = "\x1b[1;38;5;196mhot\x1b[m"
+
+func writeStyled(t *testing.T, environ []string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if _, err := io.WriteString(newDashboardWriter(&buf, environ), styled); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return buf.String()
+}
+
+func TestNewDashboardWriter(t *testing.T) {
+	tests := []struct {
+		name      string
+		environ   []string
+		wantColor string // substring that must be present; "" means no color at all
+		wantPlain bool   // output must contain no escape sequences
+	}{
+		{
+			name:      "not a terminal",
+			environ:   []string{"TERM=xterm-256color", "COLORTERM=truecolor"},
+			wantPlain: true,
+		},
+		{
+			name:      "256-color terminal",
+			environ:   []string{"TERM=xterm-256color", "TTY_FORCE=1"},
+			wantColor: "38;5;196",
+		},
+		{
+			name:      "16-color terminal",
+			environ:   []string{"TERM=xterm", "TTY_FORCE=1"},
+			wantColor: "91",
+		},
+		{
+			name:    "NO_COLOR=1 on a color terminal",
+			environ: []string{"TERM=xterm-256color", "TTY_FORCE=1", "NO_COLOR=1"},
+		},
+		{
+			name:    "NO_COLOR with a non-boolean value",
+			environ: []string{"TERM=xterm-256color", "TTY_FORCE=1", "NO_COLOR=yes"},
+		},
+		{
+			name:      "CLICOLOR_FORCE on a pipe",
+			environ:   []string{"TERM=xterm-256color", "CLICOLOR_FORCE=1"},
+			wantColor: "38;5;196",
+		},
+		{
+			name:    "NO_COLOR wins over CLICOLOR_FORCE on a pipe",
+			environ: []string{"TERM=xterm-256color", "CLICOLOR_FORCE=1", "NO_COLOR=1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := writeStyled(t, tt.environ)
+			if !strings.Contains(got, "hot") {
+				t.Fatalf("text lost: %q", got)
+			}
+			hasColor := strings.Contains(got, "38;") || strings.Contains(got, "[91") || strings.Contains(got, ";91")
+			switch {
+			case tt.wantPlain:
+				if strings.Contains(got, "\x1b") {
+					t.Errorf("expected no escape sequences, got %q", got)
+				}
+			case tt.wantColor != "":
+				if !strings.Contains(got, tt.wantColor) {
+					t.Errorf("expected %q in output, got %q", tt.wantColor, got)
+				}
+				if tt.wantColor == "91" && strings.Contains(got, "38;5;") {
+					t.Errorf("expected colors downgraded to 16, got %q", got)
+				}
+			default:
+				if hasColor {
+					t.Errorf("expected no color sequences, got %q", got)
+				}
+			}
+		})
 	}
 }
 
