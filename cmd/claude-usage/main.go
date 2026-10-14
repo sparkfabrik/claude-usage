@@ -433,47 +433,46 @@ func colorForPct(pct int, cfg *config.Config) string {
 // sequences are stripped when w is not a terminal, colors are dropped when
 // NO_COLOR (or CLICOLOR=0) asks for it, and colors are downgraded to what the
 // terminal supports. Bold and faint survive NO_COLOR on terminals.
-func newDashboardWriter(w io.Writer, environ []string) io.Writer {
-	return newDashboardWriterEnv(w, environ)
-}
-
-// newDashboardWriterEnv is newDashboardWriter with extra environment entries
-// appended after normalizeColorEnv. It is intended for tests: colorprofile
-// lets a later duplicate key win, so the extras can set variables the
-// normalization drops, such as TTY_FORCE=1 to fake a terminal.
-func newDashboardWriterEnv(w io.Writer, environ []string, extra ...string) io.Writer {
+//
+// extra entries are appended after normalization and are meant for tests:
+// colorprofile lets a later duplicate key win, so TTY_FORCE=1 fakes a terminal.
+func newDashboardWriter(w io.Writer, environ []string, extra ...string) io.Writer {
 	return colorprofile.NewWriter(w, append(normalizeColorEnv(environ), extra...))
 }
 
 // normalizeColorEnv maps the color environment variables onto the forms
-// colorprofile understands, keeping the semantics of the previous renderer
-// (termenv). colorprofile parses CLICOLOR and CLICOLOR_FORCE with
-// strconv.ParseBool, NO_COLOR as a boolean too, and uses CLICOLOR only to
-// enable colors. Resulting rules:
-//   - any non-empty NO_COLOR disables colors and overrides everything
-//     (https://no-color.org);
+// colorprofile understands. colorprofile parses them more strictly than the
+// no-color.org and CLICOLOR conventions. Rules:
+//   - any non-empty NO_COLOR disables colors and overrides everything;
 //   - CLICOLOR=0 disables colors unless CLICOLOR_FORCE is set to a non-empty
 //     value other than "0";
 //   - any non-empty CLICOLOR_FORCE other than "0" forces colors;
-//   - TTY_FORCE is dropped: colorprofile honors it, but only CLICOLOR_FORCE
-//     may make a non-terminal receive escape sequences.
+//   - TTY_FORCE is dropped, so only CLICOLOR_FORCE can make a non-terminal
+//     receive escape sequences.
 func normalizeColorEnv(environ []string) []string {
-	// Duplicate keys: any non-empty NO_COLOR wins, the last CLICOLOR_FORCE wins.
+	// Duplicate keys: any non-empty NO_COLOR wins; for CLICOLOR and
+	// CLICOLOR_FORCE the last entry wins.
 	var noColor, cliColorOff, force bool
+	var cliColor string
 	env := make([]string, 0, len(environ)+1)
 	for _, kv := range environ {
 		k, v, _ := strings.Cut(kv, "=")
-		switch {
-		case k == "NO_COLOR":
+		switch k {
+		case "NO_COLOR":
 			noColor = noColor || v != ""
-		case k == "TTY_FORCE":
-		case k == "CLICOLOR_FORCE":
+		case "TTY_FORCE":
+			// dropped: only a real terminal may enable escapes
+		case "CLICOLOR_FORCE":
 			force = v != "" && v != "0"
-		case k == "CLICOLOR" && v == "0":
-			cliColorOff = true
+		case "CLICOLOR":
+			cliColorOff = v == "0"
+			cliColor = kv
 		default:
 			env = append(env, kv)
 		}
+	}
+	if cliColor != "" && !cliColorOff {
+		env = append(env, cliColor)
 	}
 	switch {
 	case noColor, cliColorOff && !force:
