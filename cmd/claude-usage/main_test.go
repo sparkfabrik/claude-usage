@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1282,6 +1284,172 @@ func TestRunDashboard_NonexistentProjectsDir(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "No usage data found") {
 		t.Errorf("expected 'No usage data found' for nonexistent dir, got:\n%s", output)
+	}
+}
+
+// colorEnvVars lists the environment variables colorprofile and its terminfo
+// lookup read. Tests set them empty rather than unset, and the host terminfo
+// database (~/.terminfo and the system paths) is still read, so results for a
+// faked terminal can still depend on the host's terminfo entry.
+var colorEnvVars = []string{
+	"TERM", "NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "COLORTERM",
+	"TTY_FORCE", "WT_SESSION", "GOOGLE_CLOUD_SHELL", "TMUX",
+	"TERMINFO", "TERMINFO_DIRS",
+}
+
+// dashboardOutput runs the dashboard against fake data and returns what it
+// wrote. It first empties every color variable so the host terminal cannot
+// leak in, then applies env on top.
+func dashboardOutput(t *testing.T, env map[string]string) string {
+	t.Helper()
+	for _, k := range colorEnvVars {
+		t.Setenv(k, "")
+	}
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
+	var buf bytes.Buffer
+	cfg := config.Default()
+	cfg.API.Enabled = false
+	cachePath := t.TempDir() + "/quota.json"
+	projectsDir := createFakeProjectsDir(t)
+
+	if err := runDashboard(&buf, nil, cfg, cachePath, projectsDir, true, false, false, "", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "Usage by Period") {
+		t.Fatalf("expected dashboard content, got:\n%s", output)
+	}
+	return output
+}
+
+func TestRunDashboard_NoEscapesWhenNotTerminal(t *testing.T) {
+	// A color-capable TERM must not leak escape codes into a pipe or file.
+	env := map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor"}
+	if output := dashboardOutput(t, env); strings.Contains(output, "\x1b") {
+		t.Errorf("expected no ANSI escape sequences, got:\n%q", output)
+	}
+}
+
+// styledSample is bold, faint text with a 256-color foreground (196) and
+// background (21), so a leak of any style class shows up in the output.
+const styledSample = "\x1b[1;2;38;5;196;48;5;21mhot\x1b[m"
+
+// writeStyled writes styledSample through the dashboard writer. A terminal case
+// fakes the terminal with TTY_FORCE, which newDashboardWriter appends after
+// normalizeColorEnv drops it.
+func writeStyled(t *testing.T, environ []string, terminal bool) string {
+	t.Helper()
+	var extra []string
+	if terminal {
+		extra = []string{"TTY_FORCE=1"}
+	}
+	var buf bytes.Buffer
+	w := newDashboardWriter(&buf, environ, extra...)
+	if _, err := io.WriteString(w, styledSample); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return buf.String()
+}
+
+func TestNewDashboardWriter(t *testing.T) {
+	var (
+		plain   []string                                   // no escape sequences at all
+		noColor = []string{sgrBold, sgrFaint}              // decoration kept, colors dropped
+		ansi16  = []string{sgrBold, sgrColor16, sgrFaint}  // downgraded to the 16-color palette
+		ansi256 = []string{sgrBold, sgrColor256, sgrFaint} // full 256-color output
+	)
+	const tty256 = "TERM=xterm-256color"
+	tests := []struct {
+		name     string
+		environ  []string
+		terminal bool     // fake a terminal instead of a pipe
+		want     []string // exact set of SGR classes expected in the output
+	}{
+		{"not a terminal", []string{tty256, "COLORTERM=truecolor"}, false, plain},
+		{"256-color terminal", []string{tty256}, true, ansi256},
+		{"16-color terminal", []string{"TERM=xterm"}, true, ansi16},
+		{"NO_COLOR=1 on a color terminal", []string{tty256, "NO_COLOR=1"}, true, noColor},
+		{"NO_COLOR with a non-boolean value", []string{tty256, "NO_COLOR=yes"}, true, noColor},
+		{"empty NO_COLOR keeps colors", []string{tty256, "NO_COLOR="}, true, ansi256},
+		{"NO_COLOR on a pipe", []string{tty256, "NO_COLOR=1"}, false, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE on a pipe", []string{tty256, "CLICOLOR_FORCE=1", "NO_COLOR=1"}, false, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE=2 on a pipe", []string{tty256, "CLICOLOR_FORCE=2", "NO_COLOR=1"}, false, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE on a terminal", []string{tty256, "CLICOLOR_FORCE=1", "NO_COLOR=1"}, true, noColor},
+		{"CLICOLOR=0 on a terminal", []string{tty256, "CLICOLOR=0"}, true, noColor},
+		{"CLICOLOR=0 with CLICOLOR_FORCE=0", []string{tty256, "CLICOLOR=0", "CLICOLOR_FORCE=0"}, true, noColor},
+		{"CLICOLOR=0 with CLICOLOR_FORCE empty", []string{tty256, "CLICOLOR=0", "CLICOLOR_FORCE="}, true, noColor},
+		{"CLICOLOR_FORCE=1 overrides CLICOLOR=0", []string{tty256, "CLICOLOR=0", "CLICOLOR_FORCE=1"}, true, ansi256},
+		{"CLICOLOR=1 on a terminal", []string{tty256, "CLICOLOR=1"}, true, ansi256},
+		{"CLICOLOR_FORCE=1 on a pipe", []string{tty256, "CLICOLOR_FORCE=1"}, false, ansi256},
+		{"CLICOLOR_FORCE=2 on a pipe", []string{tty256, "CLICOLOR_FORCE=2"}, false, ansi256},
+		{"CLICOLOR_FORCE=yes on a pipe", []string{tty256, "CLICOLOR_FORCE=yes"}, false, ansi256},
+		{"CLICOLOR_FORCE empty on a pipe", []string{tty256, "CLICOLOR_FORCE="}, false, plain},
+		{"CLICOLOR_FORCE=0 on a pipe", []string{tty256, "CLICOLOR_FORCE=0"}, false, plain},
+		{"TTY_FORCE=1 does not force escapes on a pipe", []string{tty256, "COLORTERM=truecolor", "TTY_FORCE=1"}, false, plain},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := writeStyled(t, tt.environ, tt.terminal)
+			if !strings.Contains(output, "hot") {
+				t.Fatalf("text lost: %q", output)
+			}
+			assertSGR(t, output, tt.want)
+		})
+	}
+}
+
+func TestNormalizeColorEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"untouched", []string{"TERM=xterm", "CLICOLOR=1"}, []string{"TERM=xterm", "CLICOLOR=1"}},
+		{"NO_COLOR non-empty", []string{"NO_COLOR=yes", "TERM=xterm"}, []string{"TERM=xterm", "NO_COLOR=1"}},
+		{"NO_COLOR empty dropped", []string{"NO_COLOR=", "TERM=xterm"}, []string{"TERM=xterm"}},
+		{"NO_COLOR non-empty then empty", []string{"NO_COLOR=1", "NO_COLOR="}, []string{"NO_COLOR=1"}},
+		{"NO_COLOR beats force", []string{"CLICOLOR_FORCE=1", "NO_COLOR=1"}, []string{"NO_COLOR=1"}},
+		{"CLICOLOR=0", []string{"CLICOLOR=0", "TERM=xterm"}, []string{"TERM=xterm", "NO_COLOR=1"}},
+		{"CLICOLOR=0 force 0", []string{"CLICOLOR=0", "CLICOLOR_FORCE=0"}, []string{"NO_COLOR=1"}},
+		{"CLICOLOR=0 force set", []string{"CLICOLOR=0", "CLICOLOR_FORCE=yes"}, []string{"CLICOLOR_FORCE=1"}},
+		{"force normalized", []string{"CLICOLOR_FORCE=2"}, []string{"CLICOLOR_FORCE=1"}},
+		{"force empty dropped", []string{"CLICOLOR_FORCE="}, []string{}},
+		{"TTY_FORCE dropped", []string{"TTY_FORCE=1", "TERM=xterm"}, []string{"TERM=xterm"}},
+		{"force zero dropped", []string{"CLICOLOR_FORCE=0"}, []string{}},
+		{"force last wins off", []string{"CLICOLOR_FORCE=1", "CLICOLOR_FORCE=0"}, []string{}},
+		{"CLICOLOR last wins on", []string{"CLICOLOR=0", "CLICOLOR=1"}, []string{"CLICOLOR=1"}},
+		{"CLICOLOR last wins off", []string{"CLICOLOR=1", "CLICOLOR=0"}, []string{"NO_COLOR=1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeColorEnv(tt.in)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("normalizeColorEnv(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRunDashboard_ColorEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want []string // sorted SGR classes; nil means no escape sequences
+	}{
+		{"CLICOLOR_FORCE on a 256-color TERM", map[string]string{"TERM": "xterm-256color", "CLICOLOR_FORCE": "1"},
+			[]string{sgrBold, sgrColor256, sgrFaint}},
+		{"CLICOLOR_FORCE on a 16-color TERM", map[string]string{"TERM": "xterm", "CLICOLOR_FORCE": "1"},
+			[]string{sgrBold, sgrColor16, sgrFaint}},
+		{"NO_COLOR wins over CLICOLOR_FORCE", map[string]string{"TERM": "xterm-256color", "CLICOLOR_FORCE": "1", "NO_COLOR": "1"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := dashboardOutput(t, tt.env)
+			assertSGR(t, output, tt.want)
+		})
 	}
 }
 

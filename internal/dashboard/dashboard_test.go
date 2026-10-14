@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/sparkfabrik/claude-usage/internal/analyzer"
 	"github.com/sparkfabrik/claude-usage/internal/auth"
 	"github.com/sparkfabrik/claude-usage/internal/cache"
@@ -113,6 +115,30 @@ func TestRenderQuota_WithData(t *testing.T) {
 	}
 	if !strings.Contains(out, "42.0%") {
 		t.Errorf("expected '42.0%%', got %q", out)
+	}
+}
+
+func TestPanelsKeepOuterWidth(t *testing.T) {
+	cfg := config.Default()
+	q := &cache.QuotaCache{
+		Utilization5h: 0.42,
+		Utilization7d: 0.67,
+		PolledAt:      time.Now().Format(time.RFC3339Nano),
+		Reset5h:       time.Now().Add(1 * time.Hour).Format(time.RFC3339Nano),
+		Reset7d:       time.Now().Add(24 * time.Hour).Format(time.RFC3339Nano),
+	}
+	panels := map[string]string{
+		"account":       RenderAccount(&auth.Credentials{SubscriptionType: "max"}),
+		"account (nil)": RenderAccount(nil),
+		"quota":         RenderQuota(q, cfg),
+		"quota (nil)":   RenderQuota(nil, cfg),
+	}
+	for name, out := range panels {
+		for i, line := range strings.Split(out, "\n") {
+			if got := lipgloss.Width(line); got != panelWidth {
+				t.Errorf("%s line %d: width %d, want %d: %q", name, i, got, panelWidth, line)
+			}
+		}
 	}
 }
 

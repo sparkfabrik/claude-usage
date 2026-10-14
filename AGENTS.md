@@ -6,11 +6,11 @@ CLI dashboard + multi-platform desktop readers for monitoring Claude Code usage.
 
 **Architecture:** Core Go CLI handles all polling, caching, and data logic. Multiple "readers" (GNOME Shell extension, KDE plasmoid, Waybar module, macOS tray, terminal statusline) call `claude-usage --status` and render the JSON response. No reader contains polling or caching logic.
 
-**Tech stack:** Go 1.23, lipgloss (TUI), pflag (CLI flags), GNOME Shell JS, KDE QML, Bash (Waybar/statusline), Objective-C (macOS tray), YAML config, GoReleaser, GitHub Actions.
+**Tech stack:** Go 1.26, lipgloss (TUI), pflag (CLI flags), GNOME Shell JS, KDE QML, Bash (Waybar/statusline), Objective-C (macOS tray), YAML config, GoReleaser, GitHub Actions.
 
 ## Setup
 
-Local Go toolchain required. No Docker.
+Local Go toolchain required: Go 1.26 or newer. No Docker.
 
 ```bash
 make build-cli       # Build the binary
@@ -33,7 +33,7 @@ The project should transition from Makefile to a Justfile.
 
 | Path                                              | Purpose      | Notes                                                              |
 | ------------------------------------------------- | ------------ | ------------------------------------------------------------------ |
-| `~/.config/claude-code-usage/config.yaml`         | Config       | YAML, `gopkg.in/yaml.v3`. XDG-aware (`XDG_CONFIG_HOME`)            |
+| `~/.config/claude-code-usage/config.yaml`         | Config       | YAML, `go.yaml.in/yaml/v3`. XDG-aware (`XDG_CONFIG_HOME`)          |
 | `~/.config/claude-code-usage/config.default.yaml` | Config (ref) | Read-only reference; install-provisioned, never loaded by the tool |
 | `~/.cache/claude-code-usage/quota.json`           | Cache        | XDG, configurable via `cache.path`, dir `0700`                     |
 | `~/.claude/.credentials.json`                     | Credentials  | Read-only. **Never write to `~/.claude/`.**                        |
@@ -119,7 +119,7 @@ Flag combinations: `--status` (cached or poll), `--status --force-poll` (always 
 > **Keep this up to date.** When adding, removing, or renaming packages/files, update this tree.
 
 ```
-cmd/claude-usage/         CLI entry point (main.go, main_test.go)
+cmd/claude-usage/         CLI entry point (main.go, main_test.go, sgr_test.go: SGR escape test helpers)
 internal/
   analyzer/               Token aggregation, time periods, per-model breakdown
   auth/                   OAuth credential loading from ~/.claude/
@@ -183,7 +183,7 @@ Before adding or upgrading any dependency:
    ```bash
    curl -s "https://proxy.golang.org/<module>/@latest" | jq .
    ```
-2. Use the newest stable major version compatible with Go 1.23.
+2. Use the newest stable major version compatible with Go 1.26.
 3. Avoid releases published within the last 5 days (supply chain risk).
 4. Always run `go mod tidy` then `go mod verify` after changes.
 

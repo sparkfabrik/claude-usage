@@ -7,8 +7,10 @@ import (
 	"math"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/colorprofile"
 	flag "github.com/spf13/pflag"
 
 	"github.com/sparkfabrik/claude-usage/internal/analyzer"
@@ -427,8 +429,63 @@ func colorForPct(pct int, cfg *config.Config) string {
 	return "#32c850"
 }
 
+// newDashboardWriter adapts the dashboard's ANSI styling to w: escape
+// sequences are stripped when w is not a terminal, colors are dropped when
+// NO_COLOR (or CLICOLOR=0) asks for it, and colors are downgraded to what the
+// terminal supports. Bold and faint survive NO_COLOR on terminals.
+//
+// extra entries are appended after normalization and are meant for tests:
+// colorprofile lets a later duplicate key win, so TTY_FORCE=1 fakes a terminal.
+func newDashboardWriter(w io.Writer, environ []string, extra ...string) io.Writer {
+	return colorprofile.NewWriter(w, append(normalizeColorEnv(environ), extra...))
+}
+
+// normalizeColorEnv maps the color environment variables onto the forms
+// colorprofile understands. colorprofile parses them more strictly than the
+// no-color.org and CLICOLOR conventions. Rules:
+//   - any non-empty NO_COLOR disables colors and overrides everything;
+//   - CLICOLOR=0 disables colors unless CLICOLOR_FORCE is set to a non-empty
+//     value other than "0";
+//   - any non-empty CLICOLOR_FORCE other than "0" forces colors;
+//   - TTY_FORCE is dropped, so only CLICOLOR_FORCE can make a non-terminal
+//     receive escape sequences.
+func normalizeColorEnv(environ []string) []string {
+	// Duplicate keys: any non-empty NO_COLOR wins; for CLICOLOR and
+	// CLICOLOR_FORCE the last entry wins.
+	var noColor, cliColorOff, force bool
+	var cliColor string
+	env := make([]string, 0, len(environ)+1)
+	for _, kv := range environ {
+		k, v, _ := strings.Cut(kv, "=")
+		switch k {
+		case "NO_COLOR":
+			noColor = noColor || v != ""
+		case "TTY_FORCE":
+			// dropped: only a real terminal may enable escapes
+		case "CLICOLOR_FORCE":
+			force = v != "" && v != "0"
+		case "CLICOLOR":
+			cliColorOff = v == "0"
+			cliColor = kv
+		default:
+			env = append(env, kv)
+		}
+	}
+	if cliColor != "" && !cliColorOff {
+		env = append(env, cliColor)
+	}
+	switch {
+	case noColor, cliColorOff && !force:
+		env = append(env, "NO_COLOR=1")
+	case force:
+		env = append(env, "CLICOLOR_FORCE=1")
+	}
+	return env
+}
+
 // runDashboard renders the full CLI dashboard.
 func runDashboard(w io.Writer, creds *auth.Credentials, cfg *config.Config, cachePath, projectsPath string, noPoll, forcePoll, noCost bool, period, apiURL string) error {
+	w = newDashboardWriter(w, os.Environ())
 	showCost := cfg.Display.ShowCost && !noCost
 
 	fmt.Fprintln(w, dashboard.RenderAccount(creds))
