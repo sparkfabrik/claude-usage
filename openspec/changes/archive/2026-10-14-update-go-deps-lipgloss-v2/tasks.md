@@ -4,7 +4,7 @@
 
 - [x] 1.1 Bump `GOLANGCI_LINT_VERSION` in `Makefile` to 2.14.0, fix or justify any new findings, and verify `make lint-cli` passes under Go 1.27
 - [x] 1.2 Raise the `go` directive in `go.mod` to 1.26, update the Go version in `AGENTS.md` (tech stack and package management rule), and verify `go build ./...` and `make test-cli` pass
-- [x] 1.3 Install golangci-lint under a versioned binary name so a pin bump downloads the new release, and remove older binaries after the download
+- [x] 1.3 Install golangci-lint under a versioned binary name so a pin bump downloads the new release, and remove older binaries after the download, and verify that `make lint-cli` leaves only the pinned binary in `.bin/`
 
 ## 2. Dependencies
 
