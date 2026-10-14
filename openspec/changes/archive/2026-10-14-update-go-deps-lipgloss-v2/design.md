@@ -12,7 +12,7 @@ The repository has a single Go module, which also builds the macOS tray (no lipg
 
 **Goals:**
 
-- Keep the dashboard's visible behavior the same on a color terminal and in a pipe, and keep the same colors with `NO_COLOR`, which now also keeps bold and faint (see `specs/dashboard-output/spec.md`).
+- Keep the dashboard's visible behavior the same on a color terminal and in a pipe, and drop colors with `NO_COLOR`, which now also keeps bold and faint (see `specs/dashboard-output/spec.md`).
 - Keep each upgrade in its own commit so a regression can be bisected to one item.
 
 **Non-Goals:**
