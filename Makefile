@@ -35,12 +35,11 @@ $(GOLANGCI_LINT):
 	@tar xzf $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) -C $(BIN_DIR) --strip-components=1 \
 		golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH)/golangci-lint
 	@mv $(BIN_DIR)/golangci-lint $(GOLANGCI_LINT)
-	@# tar and mv above already replaced any legacy unversioned binary.
-	@# Remove every other golangci-lint-* file, such as older pinned binaries and the downloaded tarball.
-	@for f in $(BIN_DIR)/golangci-lint-*; do \
+	@rm -f $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) $(BIN_DIR)/checksums.txt
+	@# Remove older pinned binaries; tar and mv above already replaced any legacy unversioned one.
+	@for f in $(BIN_DIR)/golangci-lint-[0-9]*; do \
 		if [ -e "$${f}" ] && [ "$${f}" != "$(GOLANGCI_LINT)" ]; then rm -f "$${f}"; fi; \
 	done
-	@rm -f $(BIN_DIR)/checksums.txt
 	@echo "Installed golangci-lint v$(GOLANGCI_LINT_VERSION) to $(BIN_DIR) (checksum verified)"
 
 ## Run linter
