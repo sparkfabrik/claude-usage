@@ -1287,10 +1287,23 @@ func TestRunDashboard_NonexistentProjectsDir(t *testing.T) {
 	}
 }
 
+// colorEnvVars lists every variable colorprofile reads besides TERM.
+var colorEnvVars = []string{
+	"NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "COLORTERM",
+	"TTY_FORCE", "WT_SESSION", "GOOGLE_CLOUD_SHELL", "TMUX",
+}
+
 // dashboardOutput runs the dashboard against fake data and returns what it
-// wrote. The caller sets the color environment first.
-func dashboardOutput(t *testing.T) string {
+// wrote. It first empties every color variable so the host terminal cannot
+// leak in, then applies env on top.
+func dashboardOutput(t *testing.T, env map[string]string) string {
 	t.Helper()
+	for _, k := range colorEnvVars {
+		t.Setenv(k, "")
+	}
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
 	var buf bytes.Buffer
 	cfg := config.Default()
 	cfg.API.Enabled = false
@@ -1309,13 +1322,8 @@ func dashboardOutput(t *testing.T) string {
 
 func TestRunDashboard_NoEscapesWhenNotTerminal(t *testing.T) {
 	// A color-capable TERM must not leak escape codes into a pipe or file.
-	t.Setenv("TERM", "xterm-256color")
-	t.Setenv("COLORTERM", "truecolor")
-	t.Setenv("CLICOLOR_FORCE", "")
-	t.Setenv("TTY_FORCE", "")
-	t.Setenv("NO_COLOR", "")
-
-	if output := dashboardOutput(t); strings.Contains(output, "\x1b") {
+	env := map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor"}
+	if output := dashboardOutput(t, env); strings.Contains(output, "\x1b") {
 		t.Errorf("expected no ANSI escape sequences, got:\n%q", output)
 	}
 }
@@ -1438,20 +1446,9 @@ func TestRunDashboard_ColorEnv(t *testing.T) {
 			[]string{sgrBold, sgrColor16, sgrFaint}},
 		{"NO_COLOR wins over CLICOLOR_FORCE", map[string]string{"TERM": "xterm-256color", "CLICOLOR_FORCE": "1", "NO_COLOR": "1"}, nil},
 	}
-	// Every variable colorprofile reads, so the host terminal cannot leak in.
-	hostVars := []string{
-		"NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "COLORTERM",
-		"TTY_FORCE", "WT_SESSION", "GOOGLE_CLOUD_SHELL", "TMUX",
-	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, k := range hostVars {
-				t.Setenv(k, "")
-			}
-			for k, v := range tt.env {
-				t.Setenv(k, v)
-			}
-			output := dashboardOutput(t)
+			output := dashboardOutput(t, tt.env)
 			if tt.want == nil {
 				if strings.Contains(output, "\x1b") {
 					t.Errorf("expected no escape sequences, got:\n%q", output)

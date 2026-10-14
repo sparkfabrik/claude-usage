@@ -26,18 +26,18 @@ const (
 // Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
 // Parameters split on ';' only. An empty parameter is 0, and a parameter
 // holding ':' subfields (38:5:n) stays one group.
-func sgrParams(t *testing.T, s string) [][]string {
-	t.Helper()
+// An unterminated sequence is an error.
+func sgrParams(s string) ([][]string, error) {
 	var seqs [][]string
 	for {
 		_, rest, found := strings.Cut(s, "\x1b[")
 		if !found {
-			return seqs
+			return seqs, nil
 		}
 		s = rest
 		end := strings.IndexFunc(s, func(r rune) bool { return r >= 0x40 && r <= 0x7e })
 		if end < 0 {
-			t.Fatalf("unterminated escape sequence in %q", s)
+			return nil, fmt.Errorf("unterminated escape sequence in %q", s)
 		}
 		params, final := s[:end], s[end]
 		s = s[end+1:]
@@ -52,8 +52,12 @@ func sgrParams(t *testing.T, s string) [][]string {
 // sequences in s, and nil when there are none.
 func sgrClasses(t *testing.T, s string) []string {
 	t.Helper()
+	seqs, err := sgrParams(s)
+	if err != nil {
+		t.Fatal(err)
+	}
 	set := map[string]bool{}
-	for _, params := range sgrParams(t, s) {
+	for _, params := range seqs {
 		for i := 0; i < len(params); i++ {
 			class, skip := classifySGR(t, params[i:])
 			if class != "" {
@@ -143,6 +147,8 @@ func TestSGRClasses(t *testing.T) {
 		{"\x1b[3m", []string{sgrOther}},
 		{"\x1b[4:3m", []string{sgrOther}},
 		{"\x1b[?25l", nil},
+		{"\x1b[1@", nil},
+		{"\x1b[1~", nil},
 		{"\x1b[m", nil},
 		{"\x1b]0;title\x07", nil},
 	}
@@ -150,6 +156,33 @@ func TestSGRClasses(t *testing.T) {
 		t.Run(fmt.Sprintf("%q", tt.in), func(t *testing.T) {
 			if got := sgrClasses(t, tt.in); !slices.Equal(got, tt.want) {
 				t.Errorf("sgrClasses = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSGRParams(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    [][]string
+		wantErr bool
+	}{
+		{"a\x1b[38;5;1", nil, true},
+		{"\x1b[", nil, true},
+		{"\x1b[1m\x1b[2m", [][]string{{"1"}, {"2"}}, false},
+		{"a\x1b[1mb\x1b[2mc", [][]string{{"1"}, {"2"}}, false},
+		{"\x1b[1;2m", [][]string{{"1", "2"}}, false},
+		{"\x1b[?25l\x1b[1m", [][]string{{"1"}}, false},
+		{"plain", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q", tt.in), func(t *testing.T) {
+			got, err := sgrParams(tt.in)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !slices.EqualFunc(got, tt.want, slices.Equal[[]string]) {
+				t.Errorf("sgrParams = %q, want %q", got, tt.want)
 			}
 		})
 	}
