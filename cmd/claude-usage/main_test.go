@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1313,8 +1315,78 @@ func TestRunDashboard_NoEscapesWhenNotTerminal(t *testing.T) {
 	}
 }
 
-// styled is bold text in 256-color red (196), as lipgloss renders it.
-const styled = "\x1b[1;38;5;196mhot\x1b[m"
+// styled is bold, faint text with a 256-color foreground (196) and
+// background (21), so a leak of any style class shows up in the output.
+const styled = "\x1b[1;2;38;5;196;48;5;21mhot\x1b[m"
+
+// SGR style classes found in an escape-sequence stream.
+const (
+	sgrColor16  = "color16"
+	sgrColor256 = "color256"
+	sgrTrue     = "truecolor"
+	sgrBold     = "bold"
+	sgrFaint    = "faint"
+)
+
+// sgrClasses returns the sorted, comma-joined set of style classes used by
+// the SGR sequences in s, and "" when there are none.
+func sgrClasses(t *testing.T, s string) string {
+	t.Helper()
+	set := map[string]bool{}
+	for {
+		start := strings.Index(s, "\x1b[")
+		if start < 0 {
+			break
+		}
+		s = s[start+2:]
+		end := strings.IndexAny(s, "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~")
+		if end < 0 {
+			t.Fatalf("unterminated escape sequence in %q", s)
+		}
+		final := s[end]
+		params := s[:end]
+		s = s[end+1:]
+		if final != 'm' {
+			continue
+		}
+		var nums []int
+		for _, p := range strings.Split(params, ";") {
+			n := 0
+			if p != "" {
+				var err error
+				if n, err = strconv.Atoi(p); err != nil {
+					t.Fatalf("bad SGR parameter %q", p)
+				}
+			}
+			nums = append(nums, n)
+		}
+		for i := 0; i < len(nums); i++ {
+			n := nums[i]
+			switch {
+			case n == 1:
+				set[sgrBold] = true
+			case n == 2:
+				set[sgrFaint] = true
+			case n == 38 || n == 48:
+				if i+1 < len(nums) && nums[i+1] == 5 {
+					set[sgrColor256] = true
+					i += 2
+				} else if i+1 < len(nums) && nums[i+1] == 2 {
+					set[sgrTrue] = true
+					i += 4
+				}
+			case (n >= 30 && n <= 37) || (n >= 40 && n <= 47) || (n >= 90 && n <= 97) || (n >= 100 && n <= 107):
+				set[sgrColor16] = true
+			}
+		}
+	}
+	classes := make([]string, 0, len(set))
+	for c := range set {
+		classes = append(classes, c)
+	}
+	sort.Strings(classes)
+	return strings.Join(classes, ",")
+}
 
 func writeStyled(t *testing.T, environ []string) string {
 	t.Helper()
@@ -1326,44 +1398,39 @@ func writeStyled(t *testing.T, environ []string) string {
 }
 
 func TestNewDashboardWriter(t *testing.T) {
+	const (
+		plain     = ""                                           // no escape sequences at all
+		noColor   = sgrBold + "," + sgrFaint                     // decoration kept, colors dropped
+		ansi16    = sgrBold + "," + sgrColor16 + "," + sgrFaint  // downgraded to the 16-color palette
+		ansi256   = sgrBold + "," + sgrColor256 + "," + sgrFaint // full 256-color output
+		tty256    = "TERM=xterm-256color"
+		ttyForced = "TTY_FORCE=1"
+	)
 	tests := []struct {
-		name      string
-		environ   []string
-		wantColor string // substring that must be present; "" means no color at all
-		wantPlain bool   // output must contain no escape sequences
+		name    string
+		environ []string
+		want    string // exact set of SGR classes expected in the output
 	}{
-		{
-			name:      "not a terminal",
-			environ:   []string{"TERM=xterm-256color", "COLORTERM=truecolor"},
-			wantPlain: true,
-		},
-		{
-			name:      "256-color terminal",
-			environ:   []string{"TERM=xterm-256color", "TTY_FORCE=1"},
-			wantColor: "38;5;196",
-		},
-		{
-			name:      "16-color terminal",
-			environ:   []string{"TERM=xterm", "TTY_FORCE=1"},
-			wantColor: "91",
-		},
-		{
-			name:    "NO_COLOR=1 on a color terminal",
-			environ: []string{"TERM=xterm-256color", "TTY_FORCE=1", "NO_COLOR=1"},
-		},
-		{
-			name:    "NO_COLOR with a non-boolean value",
-			environ: []string{"TERM=xterm-256color", "TTY_FORCE=1", "NO_COLOR=yes"},
-		},
-		{
-			name:      "CLICOLOR_FORCE on a pipe",
-			environ:   []string{"TERM=xterm-256color", "CLICOLOR_FORCE=1"},
-			wantColor: "38;5;196",
-		},
-		{
-			name:    "NO_COLOR wins over CLICOLOR_FORCE on a pipe",
-			environ: []string{"TERM=xterm-256color", "CLICOLOR_FORCE=1", "NO_COLOR=1"},
-		},
+		{"not a terminal", []string{tty256, "COLORTERM=truecolor"}, plain},
+		{"256-color terminal", []string{tty256, ttyForced}, ansi256},
+		{"16-color terminal", []string{"TERM=xterm", ttyForced}, ansi16},
+		{"NO_COLOR=1 on a color terminal", []string{tty256, ttyForced, "NO_COLOR=1"}, noColor},
+		{"NO_COLOR with a non-boolean value", []string{tty256, ttyForced, "NO_COLOR=yes"}, noColor},
+		{"empty NO_COLOR keeps colors", []string{tty256, ttyForced, "NO_COLOR="}, ansi256},
+		{"NO_COLOR on a pipe", []string{tty256, "NO_COLOR=1"}, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE on a pipe", []string{tty256, "CLICOLOR_FORCE=1", "NO_COLOR=1"}, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE=2 on a pipe", []string{tty256, "CLICOLOR_FORCE=2", "NO_COLOR=1"}, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE on a terminal", []string{tty256, ttyForced, "CLICOLOR_FORCE=1", "NO_COLOR=1"}, noColor},
+		{"CLICOLOR=0 on a terminal", []string{tty256, ttyForced, "CLICOLOR=0"}, noColor},
+		{"CLICOLOR=0 with CLICOLOR_FORCE=0", []string{tty256, ttyForced, "CLICOLOR=0", "CLICOLOR_FORCE=0"}, noColor},
+		{"CLICOLOR=0 with CLICOLOR_FORCE empty", []string{tty256, ttyForced, "CLICOLOR=0", "CLICOLOR_FORCE="}, noColor},
+		{"CLICOLOR_FORCE=1 overrides CLICOLOR=0", []string{tty256, ttyForced, "CLICOLOR=0", "CLICOLOR_FORCE=1"}, ansi256},
+		{"CLICOLOR=1 on a terminal", []string{tty256, ttyForced, "CLICOLOR=1"}, ansi256},
+		{"CLICOLOR_FORCE=1 on a pipe", []string{tty256, "CLICOLOR_FORCE=1"}, ansi256},
+		{"CLICOLOR_FORCE=2 on a pipe", []string{tty256, "CLICOLOR_FORCE=2"}, ansi256},
+		{"CLICOLOR_FORCE=yes on a pipe", []string{tty256, "CLICOLOR_FORCE=yes"}, ansi256},
+		{"CLICOLOR_FORCE empty on a pipe", []string{tty256, "CLICOLOR_FORCE="}, plain},
+		{"CLICOLOR_FORCE=0 on a pipe", []string{tty256, "CLICOLOR_FORCE=0"}, plain},
 	}
 
 	for _, tt := range tests {
@@ -1372,23 +1439,39 @@ func TestNewDashboardWriter(t *testing.T) {
 			if !strings.Contains(got, "hot") {
 				t.Fatalf("text lost: %q", got)
 			}
-			hasColor := strings.Contains(got, "38;") || strings.Contains(got, "[91") || strings.Contains(got, ";91")
-			switch {
-			case tt.wantPlain:
-				if strings.Contains(got, "\x1b") {
-					t.Errorf("expected no escape sequences, got %q", got)
-				}
-			case tt.wantColor != "":
-				if !strings.Contains(got, tt.wantColor) {
-					t.Errorf("expected %q in output, got %q", tt.wantColor, got)
-				}
-				if tt.wantColor == "91" && strings.Contains(got, "38;5;") {
-					t.Errorf("expected colors downgraded to 16, got %q", got)
-				}
-			default:
-				if hasColor {
-					t.Errorf("expected no color sequences, got %q", got)
-				}
+			if tt.want == "" && strings.Contains(got, "\x1b") {
+				t.Errorf("expected no escape sequences, got %q", got)
+			}
+			if classes := sgrClasses(t, got); classes != tt.want {
+				t.Errorf("SGR classes = %q, want %q (output %q)", classes, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestNormalizeColorEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"untouched", []string{"TERM=xterm", "CLICOLOR=1"}, []string{"TERM=xterm", "CLICOLOR=1"}},
+		{"NO_COLOR non-empty", []string{"NO_COLOR=yes", "TERM=xterm"}, []string{"TERM=xterm", "NO_COLOR=1"}},
+		{"NO_COLOR empty dropped", []string{"NO_COLOR=", "TERM=xterm"}, []string{"TERM=xterm"}},
+		{"NO_COLOR non-empty then empty", []string{"NO_COLOR=1", "NO_COLOR="}, []string{"NO_COLOR=1"}},
+		{"NO_COLOR beats force", []string{"CLICOLOR_FORCE=1", "NO_COLOR=1"}, []string{"NO_COLOR=1"}},
+		{"CLICOLOR=0", []string{"CLICOLOR=0", "TERM=xterm"}, []string{"TERM=xterm", "NO_COLOR=1"}},
+		{"CLICOLOR=0 force 0", []string{"CLICOLOR=0", "CLICOLOR_FORCE=0"}, []string{"NO_COLOR=1"}},
+		{"CLICOLOR=0 force set", []string{"CLICOLOR=0", "CLICOLOR_FORCE=yes"}, []string{"CLICOLOR_FORCE=1"}},
+		{"force normalized", []string{"CLICOLOR_FORCE=2"}, []string{"CLICOLOR_FORCE=1"}},
+		{"force empty dropped", []string{"CLICOLOR_FORCE="}, []string{}},
+		{"force zero dropped", []string{"CLICOLOR_FORCE=0"}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeColorEnv(tt.in)
+			if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
+				t.Errorf("normalizeColorEnv(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}

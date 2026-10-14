@@ -12,7 +12,7 @@ The repository has a single Go module, which also builds the macOS tray (no lipg
 
 **Goals:**
 
-- Keep the dashboard's visible behavior identical on a color terminal, in a pipe, and with `NO_COLOR` (see `specs/dashboard-output/spec.md`).
+- Keep the dashboard's visible behavior the same on a color terminal and in a pipe, and keep the same colors with `NO_COLOR`, which now also keeps bold and faint (see `specs/dashboard-output/spec.md`).
 - Keep each upgrade in its own commit so a regression can be bisected to one item.
 
 **Non-Goals:**
@@ -37,9 +37,13 @@ Alternatives considered:
 
 With v1, `NO_COLOR` produced fully plain text. colorprofile maps `NO_COLOR` to its ASCII profile, which drops colors but keeps bold and faint. This matches the `NO_COLOR` convention (no color, other styling allowed), so the spec requires only that color sequences are absent.
 
-### Normalize `NO_COLOR` before detection
+### Normalize the color environment before detection
 
-colorprofile reads `NO_COLOR` as a boolean, so `NO_COLOR=yes` would leave colors on, and it lets `CLICOLOR_FORCE` override `NO_COLOR` when the output is not a terminal. lipgloss v1 and the no-color.org convention treat any non-empty `NO_COLOR` as off. The dashboard writer therefore rewrites the environment it hands to colorprofile: any non-empty `NO_COLOR` becomes `NO_COLOR=1`, and `CLICOLOR_FORCE` is dropped while `NO_COLOR` is set.
+colorprofile reads `NO_COLOR` as a boolean, so `NO_COLOR=yes` would leave colors on, and it lets `CLICOLOR_FORCE` override `NO_COLOR` when the output is not a terminal. It also parses `CLICOLOR` and `CLICOLOR_FORCE` with `strconv.ParseBool` and uses `CLICOLOR` only to enable colors. lipgloss v1 and the no-color.org convention treat any non-empty `NO_COLOR` as off, `CLICOLOR=0` as off, and any non-empty `CLICOLOR_FORCE` other than `0` as on. `normalizeColorEnv` therefore rewrites the environment it hands to colorprofile in one pass:
+
+- any non-empty `NO_COLOR` becomes `NO_COLOR=1`, and `CLICOLOR_FORCE` is dropped;
+- `CLICOLOR=0` becomes `NO_COLOR=1` unless `CLICOLOR_FORCE` is non-empty and not `0`;
+- a non-empty `CLICOLOR_FORCE` other than `0` becomes `CLICOLOR_FORCE=1`; an empty or `0` value is dropped.
 
 ### Go 1.26 as the minimum
 

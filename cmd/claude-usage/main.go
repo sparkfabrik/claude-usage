@@ -431,28 +431,45 @@ func colorForPct(pct int, cfg *config.Config) string {
 
 // newDashboardWriter adapts the dashboard's ANSI styling to w: escape
 // sequences are stripped when w is not a terminal, colors are dropped when
-// NO_COLOR is set, and colors are downgraded to what the terminal supports.
+// NO_COLOR (or CLICOLOR=0) asks for it, and colors are downgraded to what the
+// terminal supports. Bold and faint survive NO_COLOR on terminals.
 func newDashboardWriter(w io.Writer, environ []string) io.Writer {
-	// colorprofile parses NO_COLOR as a boolean and lets CLICOLOR_FORCE
-	// override it on non-terminals, but https://no-color.org disables colors
-	// for any non-empty value (e.g. NO_COLOR=yes), whatever else is set.
-	noColor := false
+	return colorprofile.NewWriter(w, normalizeColorEnv(environ))
+}
+
+// normalizeColorEnv maps the color environment variables onto the forms
+// colorprofile understands, keeping the semantics of the previous renderer
+// (termenv). colorprofile parses CLICOLOR and CLICOLOR_FORCE with
+// strconv.ParseBool, NO_COLOR as a boolean too, and uses CLICOLOR only to
+// enable colors. Resulting rules:
+//   - any non-empty NO_COLOR disables colors and overrides everything
+//     (https://no-color.org);
+//   - CLICOLOR=0 disables colors unless CLICOLOR_FORCE is set to a non-empty
+//     value other than "0";
+//   - any non-empty CLICOLOR_FORCE other than "0" forces colors.
+func normalizeColorEnv(environ []string) []string {
+	var noColor, cliColorOff, force bool
+	env := make([]string, 0, len(environ)+1)
 	for _, kv := range environ {
-		if v, ok := strings.CutPrefix(kv, "NO_COLOR="); ok && v != "" {
-			noColor = true
+		k, v, _ := strings.Cut(kv, "=")
+		switch {
+		case k == "NO_COLOR":
+			noColor = noColor || v != ""
+		case k == "CLICOLOR_FORCE":
+			force = v != "" && v != "0"
+		case k == "CLICOLOR" && v == "0":
+			cliColorOff = true
+		default:
+			env = append(env, kv)
 		}
 	}
-	env := make([]string, 0, len(environ))
-	for _, kv := range environ {
-		if noColor && (strings.HasPrefix(kv, "NO_COLOR=") || strings.HasPrefix(kv, "CLICOLOR_FORCE=")) {
-			continue
-		}
-		env = append(env, kv)
-	}
-	if noColor {
+	switch {
+	case noColor, cliColorOff && !force:
 		env = append(env, "NO_COLOR=1")
+	case force:
+		env = append(env, "CLICOLOR_FORCE=1")
 	}
-	return colorprofile.NewWriter(w, env)
+	return env
 }
 
 // runDashboard renders the full CLI dashboard.

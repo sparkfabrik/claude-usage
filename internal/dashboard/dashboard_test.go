@@ -135,8 +135,8 @@ func TestPanelsKeepOuterWidth(t *testing.T) {
 	}
 	for name, out := range panels {
 		for i, line := range strings.Split(out, "\n") {
-			if got := lipgloss.Width(line); got != 62 {
-				t.Errorf("%s line %d: width %d, want 62: %q", name, i, got, line)
+			if got := lipgloss.Width(line); got != panelWidth {
+				t.Errorf("%s line %d: width %d, want %d: %q", name, i, got, panelWidth, line)
 			}
 		}
 	}
