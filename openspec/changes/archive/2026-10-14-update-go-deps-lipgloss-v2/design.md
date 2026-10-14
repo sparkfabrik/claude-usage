@@ -41,9 +41,16 @@ With v1, `NO_COLOR` produced fully plain text. colorprofile maps `NO_COLOR` to i
 
 colorprofile reads `NO_COLOR` as a boolean, so `NO_COLOR=yes` would leave colors on, and it lets `CLICOLOR_FORCE` override `NO_COLOR` when the output is not a terminal. It also parses `CLICOLOR` and `CLICOLOR_FORCE` with `strconv.ParseBool` and uses `CLICOLOR` only to enable colors. lipgloss v1 and the no-color.org convention treat any non-empty `NO_COLOR` as off, `CLICOLOR=0` as off, and any non-empty `CLICOLOR_FORCE` other than `0` as on. `normalizeColorEnv` therefore rewrites the environment it hands to colorprofile in one pass:
 
+- `TTY_FORCE` is dropped: colorprofile honors it, but only `CLICOLOR_FORCE` may make a non-terminal receive escape sequences;
 - any non-empty `NO_COLOR` becomes `NO_COLOR=1`, and `CLICOLOR_FORCE` is dropped;
 - `CLICOLOR=0` becomes `NO_COLOR=1` unless `CLICOLOR_FORCE` is non-empty and not `0`;
 - a non-empty `CLICOLOR_FORCE` other than `0` becomes `CLICOLOR_FORCE=1`; an empty or `0` value is dropped.
+
+### Accepted differences from v1
+
+- With `CI` set on a real terminal, v1 printed no colors (termenv treated `CI` as non-TTY); v2 colors as the terminal supports.
+- With `TERM` unset, `COLORTERM=truecolor` and `CLICOLOR=1` on a terminal, v1 colored; v2 prints no colors.
+- `NO_COLOR` keeps bold and faint (see above); v1 printed fully plain text.
 
 ### Go 1.26 as the minimum
 

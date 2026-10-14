@@ -446,7 +446,9 @@ func newDashboardWriter(w io.Writer, environ []string) io.Writer {
 //     (https://no-color.org);
 //   - CLICOLOR=0 disables colors unless CLICOLOR_FORCE is set to a non-empty
 //     value other than "0";
-//   - any non-empty CLICOLOR_FORCE other than "0" forces colors.
+//   - any non-empty CLICOLOR_FORCE other than "0" forces colors;
+//   - TTY_FORCE is dropped: colorprofile honors it, but only CLICOLOR_FORCE
+//     may make a non-terminal receive escape sequences.
 func normalizeColorEnv(environ []string) []string {
 	// Duplicate keys: any non-empty NO_COLOR wins, the last CLICOLOR_FORCE wins.
 	var noColor, cliColorOff, force bool
@@ -456,6 +458,7 @@ func normalizeColorEnv(environ []string) []string {
 		switch {
 		case k == "NO_COLOR":
 			noColor = noColor || v != ""
+		case k == "TTY_FORCE":
 		case k == "CLICOLOR_FORCE":
 			force = v != "" && v != "0"
 		case k == "CLICOLOR" && v == "0":

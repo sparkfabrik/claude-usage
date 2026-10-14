@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/sparkfabrik/claude-usage/internal/auth"
 	"github.com/sparkfabrik/claude-usage/internal/cache"
 	"github.com/sparkfabrik/claude-usage/internal/config"
@@ -1330,18 +1331,21 @@ const (
 )
 
 // sgrParams returns the parameters of every SGR sequence (CSI ... m) in s.
-// Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
+// CSI is ESC '[' or the 8-bit introducer 0x9B. Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
 // Parameters split on ';' only. An empty parameter is 0, and a parameter
 // holding ':' subfields (38:5:n) stays one group.
 func sgrParams(t *testing.T, s string) [][]string {
 	t.Helper()
 	var seqs [][]string
 	for {
-		start := strings.Index(s, "\x1b[")
+		start, width := strings.Index(s, "\x1b["), 2
+		if c1 := strings.Index(s, "\x9b"); c1 >= 0 && (start < 0 || c1 < start) {
+			start, width = c1, 1
+		}
 		if start < 0 {
 			return seqs
 		}
-		s = s[start+2:]
+		s = s[start+width:]
 		end := strings.IndexFunc(s, func(r rune) bool { return r >= 0x40 && r <= 0x7e })
 		if end < 0 {
 			t.Fatalf("unterminated escape sequence in %q", s)
@@ -1390,7 +1394,7 @@ func sgrNum(t *testing.T, p string) int {
 func classifySGR(t *testing.T, params []string) (class string, skip int) {
 	t.Helper()
 	if sub := strings.Split(params[0], ":"); len(sub) > 1 {
-		if first := sgrNum(t, sub[0]); first == 38 || first == 48 {
+		if first := sgrNum(t, sub[0]); first == 38 || first == 48 || first == 58 {
 			switch sgrNum(t, sub[1]) {
 			case 5:
 				return sgrColor256, 0
@@ -1406,9 +1410,9 @@ func classifySGR(t *testing.T, params []string) (class string, skip int) {
 		return sgrBold, 0
 	case n == 2:
 		return sgrFaint, 0
-	case (n == 38 || n == 48) && len(params) > 1 && sgrNum(t, params[1]) == 5:
+	case (n == 38 || n == 48 || n == 58) && len(params) > 1 && sgrNum(t, params[1]) == 5:
 		return sgrColor256, 2
-	case (n == 38 || n == 48) && len(params) > 1 && sgrNum(t, params[1]) == 2:
+	case (n == 38 || n == 48 || n == 58) && len(params) > 1 && sgrNum(t, params[1]) == 2:
 		return sgrTrue, 4
 	case (n >= 30 && n <= 37) || (n >= 40 && n <= 47) || (n >= 90 && n <= 97) || (n >= 100 && n <= 107):
 		return sgrColor16, 0
@@ -1425,6 +1429,14 @@ func TestSGRClasses(t *testing.T) {
 		{"\x1b[48;2;1;2;3m", []string{sgrTrue}},
 		{"\x1b[38;5;1m", []string{sgrColor256}},
 		{"\x1b[48;5;31m", []string{sgrColor256}},
+		{"\x1b[38:5:196m", []string{sgrColor256}},
+		{"\x1b[48:5:21m", []string{sgrColor256}},
+		{"\x1b[58;5;9m", []string{sgrColor256}},
+		{"\x1b[58:5:9m", []string{sgrColor256}},
+		{"\x1b[58;2;1;2;3m", []string{sgrTrue}},
+		{"\x1b[58:2::1:2:3m", []string{sgrTrue}},
+		{"\x1b[58;2;1;2;3;1m", []string{sgrBold, sgrTrue}},
+		{"\x9b38;5;1m", []string{sgrColor256}},
 		{"\x1b[38:2::1:2:3m", []string{sgrTrue}},
 		{"\x1b[38:2:0:1:2:3m", []string{sgrTrue}},
 		{"\x1b[1;38;5;196;48;5;21;2m", []string{sgrBold, sgrColor256, sgrFaint}},
@@ -1444,16 +1456,26 @@ func TestSGRClasses(t *testing.T) {
 	}
 }
 
-func writeStyled(t *testing.T, environ []string) string {
+// writeStyled writes styled through the dashboard writer. A terminal case
+// mirrors newDashboardWriter but fakes the terminal with TTY_FORCE, appended
+// after normalizeColorEnv, which drops it. Other cases use newDashboardWriter.
+func writeStyled(t *testing.T, environ []string, terminal bool) string {
 	t.Helper()
 	var buf bytes.Buffer
-	if _, err := io.WriteString(newDashboardWriter(&buf, environ), styled); err != nil {
+	var w io.Writer
+	if terminal {
+		w = colorprofile.NewWriter(&buf, append(normalizeColorEnv(environ), "TTY_FORCE=1"))
+	} else {
+		w = newDashboardWriter(&buf, environ)
+	}
+	if _, err := io.WriteString(w, styled); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	return buf.String()
 }
 
 func TestNewDashboardWriter(t *testing.T) {
+	// classes sorts so expectations match sgrClasses' sorted output regardless of literal order.
 	classes := func(c ...string) []string { return slices.Sorted(slices.Values(c)) }
 	var (
 		plain   []string                                  // no escape sequences at all
@@ -1461,48 +1483,47 @@ func TestNewDashboardWriter(t *testing.T) {
 		ansi16  = classes(sgrBold, sgrColor16, sgrFaint)  // downgraded to the 16-color palette
 		ansi256 = classes(sgrBold, sgrColor256, sgrFaint) // full 256-color output
 	)
-	const (
-		tty256    = "TERM=xterm-256color"
-		ttyForced = "TTY_FORCE=1"
-	)
+	const tty256 = "TERM=xterm-256color"
 	tests := []struct {
-		name    string
-		environ []string
-		want    []string // exact set of SGR classes expected in the output
+		name     string
+		environ  []string
+		terminal bool     // fake a terminal instead of a pipe
+		want     []string // exact set of SGR classes expected in the output
 	}{
-		{"not a terminal", []string{tty256, "COLORTERM=truecolor"}, plain},
-		{"256-color terminal", []string{tty256, ttyForced}, ansi256},
-		{"16-color terminal", []string{"TERM=xterm", ttyForced}, ansi16},
-		{"NO_COLOR=1 on a color terminal", []string{tty256, ttyForced, "NO_COLOR=1"}, noColor},
-		{"NO_COLOR with a non-boolean value", []string{tty256, ttyForced, "NO_COLOR=yes"}, noColor},
-		{"empty NO_COLOR keeps colors", []string{tty256, ttyForced, "NO_COLOR="}, ansi256},
-		{"NO_COLOR on a pipe", []string{tty256, "NO_COLOR=1"}, plain},
-		{"NO_COLOR wins over CLICOLOR_FORCE on a pipe", []string{tty256, "CLICOLOR_FORCE=1", "NO_COLOR=1"}, plain},
-		{"NO_COLOR wins over CLICOLOR_FORCE=2 on a pipe", []string{tty256, "CLICOLOR_FORCE=2", "NO_COLOR=1"}, plain},
-		{"NO_COLOR wins over CLICOLOR_FORCE on a terminal", []string{tty256, ttyForced, "CLICOLOR_FORCE=1", "NO_COLOR=1"}, noColor},
-		{"CLICOLOR=0 on a terminal", []string{tty256, ttyForced, "CLICOLOR=0"}, noColor},
-		{"CLICOLOR=0 with CLICOLOR_FORCE=0", []string{tty256, ttyForced, "CLICOLOR=0", "CLICOLOR_FORCE=0"}, noColor},
-		{"CLICOLOR=0 with CLICOLOR_FORCE empty", []string{tty256, ttyForced, "CLICOLOR=0", "CLICOLOR_FORCE="}, noColor},
-		{"CLICOLOR_FORCE=1 overrides CLICOLOR=0", []string{tty256, ttyForced, "CLICOLOR=0", "CLICOLOR_FORCE=1"}, ansi256},
-		{"CLICOLOR=1 on a terminal", []string{tty256, ttyForced, "CLICOLOR=1"}, ansi256},
-		{"CLICOLOR_FORCE=1 on a pipe", []string{tty256, "CLICOLOR_FORCE=1"}, ansi256},
-		{"CLICOLOR_FORCE=2 on a pipe", []string{tty256, "CLICOLOR_FORCE=2"}, ansi256},
-		{"CLICOLOR_FORCE=yes on a pipe", []string{tty256, "CLICOLOR_FORCE=yes"}, ansi256},
-		{"CLICOLOR_FORCE empty on a pipe", []string{tty256, "CLICOLOR_FORCE="}, plain},
-		{"CLICOLOR_FORCE=0 on a pipe", []string{tty256, "CLICOLOR_FORCE=0"}, plain},
+		{"not a terminal", []string{tty256, "COLORTERM=truecolor"}, false, plain},
+		{"256-color terminal", []string{tty256}, true, ansi256},
+		{"16-color terminal", []string{"TERM=xterm"}, true, ansi16},
+		{"NO_COLOR=1 on a color terminal", []string{tty256, "NO_COLOR=1"}, true, noColor},
+		{"NO_COLOR with a non-boolean value", []string{tty256, "NO_COLOR=yes"}, true, noColor},
+		{"empty NO_COLOR keeps colors", []string{tty256, "NO_COLOR="}, true, ansi256},
+		{"NO_COLOR on a pipe", []string{tty256, "NO_COLOR=1"}, false, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE on a pipe", []string{tty256, "CLICOLOR_FORCE=1", "NO_COLOR=1"}, false, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE=2 on a pipe", []string{tty256, "CLICOLOR_FORCE=2", "NO_COLOR=1"}, false, plain},
+		{"NO_COLOR wins over CLICOLOR_FORCE on a terminal", []string{tty256, "CLICOLOR_FORCE=1", "NO_COLOR=1"}, true, noColor},
+		{"CLICOLOR=0 on a terminal", []string{tty256, "CLICOLOR=0"}, true, noColor},
+		{"CLICOLOR=0 with CLICOLOR_FORCE=0", []string{tty256, "CLICOLOR=0", "CLICOLOR_FORCE=0"}, true, noColor},
+		{"CLICOLOR=0 with CLICOLOR_FORCE empty", []string{tty256, "CLICOLOR=0", "CLICOLOR_FORCE="}, true, noColor},
+		{"CLICOLOR_FORCE=1 overrides CLICOLOR=0", []string{tty256, "CLICOLOR=0", "CLICOLOR_FORCE=1"}, true, ansi256},
+		{"CLICOLOR=1 on a terminal", []string{tty256, "CLICOLOR=1"}, true, ansi256},
+		{"CLICOLOR_FORCE=1 on a pipe", []string{tty256, "CLICOLOR_FORCE=1"}, false, ansi256},
+		{"CLICOLOR_FORCE=2 on a pipe", []string{tty256, "CLICOLOR_FORCE=2"}, false, ansi256},
+		{"CLICOLOR_FORCE=yes on a pipe", []string{tty256, "CLICOLOR_FORCE=yes"}, false, ansi256},
+		{"CLICOLOR_FORCE empty on a pipe", []string{tty256, "CLICOLOR_FORCE="}, false, plain},
+		{"CLICOLOR_FORCE=0 on a pipe", []string{tty256, "CLICOLOR_FORCE=0"}, false, plain},
+		{"TTY_FORCE=1 does not force escapes on a pipe", []string{tty256, "COLORTERM=truecolor", "TTY_FORCE=1"}, false, plain},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := writeStyled(t, tt.environ)
+			output := writeStyled(t, tt.environ, tt.terminal)
 			if !strings.Contains(output, "hot") {
 				t.Fatalf("text lost: %q", output)
 			}
 			if len(tt.want) == 0 && strings.Contains(output, "\x1b") {
 				t.Errorf("expected no escape sequences, got %q", output)
 			}
-			if classes := sgrClasses(t, output); !slices.Equal(classes, tt.want) {
-				t.Errorf("SGR classes = %q, want %q (output %q)", classes, tt.want, output)
+			if gotClasses := sgrClasses(t, output); !slices.Equal(gotClasses, tt.want) {
+				t.Errorf("SGR classes = %q, want %q (output %q)", gotClasses, tt.want, output)
 			}
 		})
 	}
@@ -1524,6 +1545,7 @@ func TestNormalizeColorEnv(t *testing.T) {
 		{"CLICOLOR=0 force set", []string{"CLICOLOR=0", "CLICOLOR_FORCE=yes"}, []string{"CLICOLOR_FORCE=1"}},
 		{"force normalized", []string{"CLICOLOR_FORCE=2"}, []string{"CLICOLOR_FORCE=1"}},
 		{"force empty dropped", []string{"CLICOLOR_FORCE="}, []string{}},
+		{"TTY_FORCE dropped", []string{"TTY_FORCE=1", "TERM=xterm"}, []string{"TERM=xterm"}},
 		{"force zero dropped", []string{"CLICOLOR_FORCE=0"}, []string{}},
 	}
 	for _, tt := range tests {

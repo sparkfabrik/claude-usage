@@ -25,6 +25,11 @@ The dashboard SHALL write no ANSI escape sequences when standard output is not a
 - **WHEN** the user runs `CLICOLOR_FORCE=1 claude-usage | cat`
 - **THEN** the output contains color escape sequences
 
+#### Scenario: TTY_FORCE does not force escapes on a non-terminal
+
+- **WHEN** the user runs `TTY_FORCE=1 claude-usage | cat` with `TERM=xterm-256color`
+- **THEN** the output contains no ANSI escape sequences
+
 ### Requirement: No colors when NO_COLOR is set
 
 The dashboard SHALL write no color escape sequences when the `NO_COLOR` environment variable is set to any non-empty value, even on a terminal that supports color and even when `CLICOLOR_FORCE` is set.
