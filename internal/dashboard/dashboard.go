@@ -7,14 +7,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 	"github.com/sparkfabrik/claude-usage/internal/analyzer"
 	"github.com/sparkfabrik/claude-usage/internal/auth"
 	"github.com/sparkfabrik/claude-usage/internal/cache"
 	"github.com/sparkfabrik/claude-usage/internal/config"
 	"github.com/sparkfabrik/claude-usage/internal/reader"
 )
+
+// panelWidth is the outer width of the Account and Rate Limits panels,
+// borders included (lipgloss v2 counts borders in Width).
+const panelWidth = 62
 
 var (
 	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
@@ -82,7 +86,7 @@ func RenderAccount(creds *auth.Credentials) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("40")).
 		Padding(0, 1).
-		Width(60)
+		Width(panelWidth)
 
 	if creds == nil {
 		border = border.BorderForeground(lipgloss.Color("196"))
@@ -111,7 +115,7 @@ func RenderQuota(q *cache.QuotaCache, cfg *config.Config) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("39")).
 		Padding(0, 1).
-		Width(60)
+		Width(panelWidth)
 
 	if q == nil {
 		return border.Render(

@@ -47,7 +47,8 @@ The fork is maintained by the YAML organization and keeps the same API, so the c
 
 ## Risks / Trade-offs
 
-- [lipgloss v2 table rendering differs in width or padding] → Existing dashboard tests compare rendered content; review the dashboard output by hand on a terminal before merging.
+- [lipgloss v2 counts borders inside `Width`, so panels shrink by 2 columns] → Raise the panel width to keep the outer width at 62 columns, and lock it with a test.
+- [lipgloss v2 table rendering differs in width or padding] → Compare the dashboard output with the v1 build, piped and in a terminal, before merging.
 - [Contributors on Go older than 1.26 can no longer build] → Documented in `AGENTS.md`; release binaries are unaffected.
 - [golangci-lint 2.14.0 enables new checks that flag existing code] → Fix the findings in the golangci-lint commit, or exclude a rule with a reason in `.golangci.yml`.
 - [Color behavior on a real TTY cannot be checked by `go test`] → Unit tests cover the non-TTY path; a manual run in a terminal and with `NO_COLOR=1` covers the rest.
