@@ -1287,10 +1287,12 @@ func TestRunDashboard_NonexistentProjectsDir(t *testing.T) {
 	}
 }
 
-// colorEnvVars lists every variable colorprofile reads.
+// colorEnvVars lists the environment variables colorprofile and its terminfo
+// lookup read. The host terminfo database can still influence the result.
 var colorEnvVars = []string{
 	"TERM", "NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "COLORTERM",
 	"TTY_FORCE", "WT_SESSION", "GOOGLE_CLOUD_SHELL", "TMUX",
+	"TERMINFO", "TERMINFO_DIRS",
 }
 
 // dashboardOutput runs the dashboard against fake data and returns what it
@@ -1392,12 +1394,7 @@ func TestNewDashboardWriter(t *testing.T) {
 			if !strings.Contains(output, "hot") {
 				t.Fatalf("text lost: %q", output)
 			}
-			if len(tt.want) == 0 && strings.Contains(output, "\x1b") {
-				t.Errorf("expected no escape sequences, got %q", output)
-			}
-			if gotClasses := sgrClasses(t, output); !slices.Equal(gotClasses, tt.want) {
-				t.Errorf("SGR classes = %q, want %q (output %q)", gotClasses, tt.want, output)
-			}
+			assertSGR(t, output, tt.want)
 		})
 	}
 }
@@ -1449,15 +1446,7 @@ func TestRunDashboard_ColorEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			output := dashboardOutput(t, tt.env)
-			if tt.want == nil {
-				if strings.Contains(output, "\x1b") {
-					t.Errorf("expected no escape sequences, got:\n%q", output)
-				}
-				return
-			}
-			if got := sgrClasses(t, output); !slices.Equal(got, tt.want) {
-				t.Errorf("SGR classes = %q, want %q", got, tt.want)
-			}
+			assertSGR(t, output, tt.want)
 		})
 	}
 }

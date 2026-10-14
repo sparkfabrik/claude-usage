@@ -23,9 +23,11 @@ const (
 // Only the ESC '[' introducer is recognized, the only form lipgloss and
 // colorprofile emit. The 8-bit C1 form (0x9B) is not scanned: that byte is a
 // valid UTF-8 continuation byte and would misread real text.
-// Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
-// Parameters split on ';' only. An empty parameter is 0, and a parameter
-// holding ':' subfields (38:5:n) stays one group.
+// Any ASCII final byte 0x40..0x7E ends a CSI sequence.
+// Only sequences ending in 'm' are returned.
+// Parameters split on ';' only.
+// An empty parameter is 0.
+// A parameter holding ':' subfields (38:5:n) stays one group.
 // An unterminated sequence is an error.
 func sgrParams(s string) ([][]string, error) {
 	var seqs [][]string
@@ -67,6 +69,22 @@ func sgrClasses(t *testing.T, s string) []string {
 		}
 	}
 	return slices.Sorted(maps.Keys(set))
+}
+
+// assertSGR checks that output uses exactly the style classes in want. An
+// empty want asserts no escape byte at all: sgrClasses ignores non-SGR
+// sequences, so the raw check also catches those.
+func assertSGR(t *testing.T, output string, want []string) {
+	t.Helper()
+	if len(want) == 0 {
+		if strings.Contains(output, "\x1b") {
+			t.Errorf("expected no escape sequences, got %q", output)
+		}
+		return
+	}
+	if got := sgrClasses(t, output); !slices.Equal(got, want) {
+		t.Errorf("SGR classes = %q, want %q (output %q)", got, want, output)
+	}
 }
 
 // sgrNum parses one SGR parameter; empty means 0.
