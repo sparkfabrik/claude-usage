@@ -10,7 +10,7 @@ CLI dashboard + multi-platform desktop readers for monitoring Claude Code usage.
 
 ## Setup
 
-Local Go toolchain required. No Docker.
+Local Go toolchain required: Go 1.26 or newer. No Docker.
 
 ```bash
 make build-cli       # Build the binary

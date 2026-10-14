@@ -11,6 +11,7 @@ The Go toolchain and dependencies on `main` have fallen behind. `make lint-cli` 
 - Bump `golang.org/x/sys` to its latest release (fixes GO-2026-5024, Windows only and not reachable from this code).
 - Replace the unmaintained `gopkg.in/yaml.v3` with its maintained fork `go.yaml.in/yaml/v3`.
 - Migrate the dashboard from lipgloss v1 to lipgloss v2. lipgloss v2 no longer adapts colors to the terminal on its own, so the dashboard writer now does it explicitly. This keeps today's behavior: plain text when piped, no colors with `NO_COLOR`. With `NO_COLOR` the colors match v1 output, but bold and faint styling are now kept. `CLICOLOR` and `CLICOLOR_FORCE` are normalized to keep v1 semantics.
+- Add `openspec/config.yaml`, the project-level OpenSpec configuration.
 - No change to the `--status` JSON schema, the config file, or any reader.
 
 ## Capabilities
