@@ -28,6 +28,6 @@ None.
 
 - **Code:** `internal/dashboard` (lipgloss v2 import paths), `cmd/claude-usage` (dashboard writer), `internal/config` (YAML import path).
 - **Dependencies:** `go.mod`/`go.sum`; most indirect `charmbracelet/*` and terminal modules change with lipgloss v2.
-- **Tooling:** `Makefile` golangci-lint pin; CI picks up Go 1.26 through `go-version-file: go.mod`.
-- **Docs:** `AGENTS.md` (Go version, YAML module name).
+- **Tooling:** `Makefile` golangci-lint pin, a versioned binary name, and removal of older binaries; CI picks up Go 1.26 through `go-version-file: go.mod`.
+- **Docs:** `AGENTS.md` (Go version, YAML module name), `README.md` (dashboard color behavior), `openspec/config.yaml`.
 - **Users:** building from source needs Go 1.26 or newer. Release binaries are unaffected.
