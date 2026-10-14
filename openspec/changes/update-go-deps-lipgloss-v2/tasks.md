@@ -2,7 +2,7 @@
 
 ## 1. Toolchain
 
-- [ ] 1.1 Bump `GOLANGCI_LINT_VERSION` in `Makefile` to 2.14.0, fix or justify any new findings, and verify `make lint-cli` passes under Go 1.27
+- [x] 1.1 Bump `GOLANGCI_LINT_VERSION` in `Makefile` to 2.14.0, fix or justify any new findings, and verify `make lint-cli` passes under Go 1.27
 - [ ] 1.2 Raise the `go` directive in `go.mod` to 1.26, update the Go version in `AGENTS.md` (tech stack and package management rule), and verify `go build ./...` and `make test-cli` pass
 
 ## 2. Dependencies

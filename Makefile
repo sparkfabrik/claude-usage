@@ -9,11 +9,11 @@ INSTALL_DIR   := $(HOME)/.local/bin
 
 # Tool versions (pinned for reproducibility)
 # https://github.com/golangci/golangci-lint/releases
-GOLANGCI_LINT_VERSION := 2.12.2
+GOLANGCI_LINT_VERSION := 2.14.0
 
 # Local tool binaries
 BIN_DIR       := $(CURDIR)/.bin
-GOLANGCI_LINT := $(BIN_DIR)/golangci-lint
+GOLANGCI_LINT := $(BIN_DIR)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 
 # Detect OS and architecture for tool downloads
 OS            := $(shell uname -s | tr '[:upper:]' '[:lower:]')
@@ -34,6 +34,7 @@ $(GOLANGCI_LINT):
 		if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --quiet; else shasum -a 256 -c --quiet; fi
 	@tar xzf $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) -C $(BIN_DIR) --strip-components=1 \
 		golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH)/golangci-lint
+	@mv $(BIN_DIR)/golangci-lint $(GOLANGCI_LINT)
 	@rm -f $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) $(BIN_DIR)/checksums.txt
 	@echo "Installed golangci-lint v$(GOLANGCI_LINT_VERSION) to $(BIN_DIR) (checksum verified)"
 
