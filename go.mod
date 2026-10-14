@@ -1,6 +1,6 @@
 module github.com/sparkfabrik/claude-usage
 
-go 1.23
+go 1.26
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0

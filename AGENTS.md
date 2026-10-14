@@ -6,7 +6,7 @@ CLI dashboard + multi-platform desktop readers for monitoring Claude Code usage.
 
 **Architecture:** Core Go CLI handles all polling, caching, and data logic. Multiple "readers" (GNOME Shell extension, KDE plasmoid, Waybar module, macOS tray, terminal statusline) call `claude-usage --status` and render the JSON response. No reader contains polling or caching logic.
 
-**Tech stack:** Go 1.23, lipgloss (TUI), pflag (CLI flags), GNOME Shell JS, KDE QML, Bash (Waybar/statusline), Objective-C (macOS tray), YAML config, GoReleaser, GitHub Actions.
+**Tech stack:** Go 1.26, lipgloss (TUI), pflag (CLI flags), GNOME Shell JS, KDE QML, Bash (Waybar/statusline), Objective-C (macOS tray), YAML config, GoReleaser, GitHub Actions.
 
 ## Setup
 
@@ -183,7 +183,7 @@ Before adding or upgrading any dependency:
    ```bash
    curl -s "https://proxy.golang.org/<module>/@latest" | jq .
    ```
-2. Use the newest stable major version compatible with Go 1.23.
+2. Use the newest stable major version compatible with Go 1.26.
 3. Avoid releases published within the last 5 days (supply chain risk).
 4. Always run `go mod tidy` then `go mod verify` after changes.
 
