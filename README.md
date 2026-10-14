@@ -185,7 +185,7 @@ The dashboard adapts its colors to the output:
 
 - **Piped or redirected:** plain text, unless `CLICOLOR_FORCE` is set to a non-empty value other than `0`.
 - **`NO_COLOR`:** any non-empty value turns colors off, even with `CLICOLOR_FORCE`. On a terminal, bold and faint text stay.
-- **`CLICOLOR=0`:** behaves like `NO_COLOR`: colors off, bold and faint text stay on a terminal, unless `CLICOLOR_FORCE` overrides it.
+- **`CLICOLOR=0`:** turns colors off like `NO_COLOR`; on a terminal, bold and faint text stay. Unlike `NO_COLOR`, a `CLICOLOR_FORCE` value that is non-empty and not `0` overrides it.
 - **Older terminals:** colors are reduced to what the terminal supports.
 
 ### GNOME Shell extension
