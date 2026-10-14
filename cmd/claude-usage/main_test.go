@@ -1329,12 +1329,13 @@ const (
 	sgrFaint    = "faint"
 )
 
-// sgrParams returns the parameter list of every SGR sequence (CSI ... m) in
-// s. Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
-// Both ';' and ':' separate parameters, so the colon form 38:5:n parses too.
-func sgrParams(t *testing.T, s string) [][]int {
+// sgrParams returns the parameters of every SGR sequence (CSI ... m) in s.
+// Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
+// Parameters split on ';' only. An empty parameter is 0, and a parameter
+// holding ':' subfields (38:5:n) stays one group.
+func sgrParams(t *testing.T, s string) [][]string {
 	t.Helper()
-	var seqs [][]int
+	var seqs [][]string
 	for {
 		start := strings.Index(s, "\x1b[")
 		if start < 0 {
@@ -1350,18 +1351,7 @@ func sgrParams(t *testing.T, s string) [][]int {
 		if final != 'm' {
 			continue
 		}
-		var nums []int
-		for _, p := range strings.FieldsFunc(params, func(r rune) bool { return r == ';' || r == ':' }) {
-			n, err := strconv.Atoi(p)
-			if err != nil {
-				t.Fatalf("bad SGR parameter %q", p)
-			}
-			nums = append(nums, n)
-		}
-		if len(nums) == 0 {
-			nums = []int{0} // "\x1b[m" is a reset
-		}
-		seqs = append(seqs, nums)
+		seqs = append(seqs, strings.Split(params, ";"))
 	}
 }
 
@@ -1370,34 +1360,88 @@ func sgrParams(t *testing.T, s string) [][]int {
 func sgrClasses(t *testing.T, s string) []string {
 	t.Helper()
 	set := map[string]bool{}
-	for _, nums := range sgrParams(t, s) {
-		for i := 0; i < len(nums); i++ {
-			if class, skip := classifySGR(nums[i:]); class != "" {
+	for _, params := range sgrParams(t, s) {
+		for i := 0; i < len(params); i++ {
+			class, skip := classifySGR(t, params[i:])
+			if class != "" {
 				set[class] = true
-				i += skip
 			}
+			i += skip
 		}
 	}
 	return slices.Sorted(maps.Keys(set))
 }
 
-// classifySGR classifies the parameter at nums[0] and reports how many
-// following parameters it consumed.
-func classifySGR(nums []int) (class string, skip int) {
-	n := nums[0]
+// sgrNum parses one SGR parameter; empty means 0.
+func sgrNum(t *testing.T, p string) int {
+	t.Helper()
+	if p == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil {
+		t.Fatalf("bad SGR parameter %q", p)
+	}
+	return n
+}
+
+// classifySGR classifies params[0] and reports how many following ';'
+// parameters it consumed. A ':' group is self-contained and consumes none.
+func classifySGR(t *testing.T, params []string) (class string, skip int) {
+	t.Helper()
+	if sub := strings.Split(params[0], ":"); len(sub) > 1 {
+		if first := sgrNum(t, sub[0]); first == 38 || first == 48 {
+			switch sgrNum(t, sub[1]) {
+			case 5:
+				return sgrColor256, 0
+			case 2:
+				return sgrTrue, 0
+			}
+		}
+		return "", 0
+	}
+	n := sgrNum(t, params[0])
 	switch {
 	case n == 1:
 		return sgrBold, 0
 	case n == 2:
 		return sgrFaint, 0
-	case (n == 38 || n == 48) && len(nums) > 1 && nums[1] == 5:
+	case (n == 38 || n == 48) && len(params) > 1 && sgrNum(t, params[1]) == 5:
 		return sgrColor256, 2
-	case (n == 38 || n == 48) && len(nums) > 1 && nums[1] == 2:
+	case (n == 38 || n == 48) && len(params) > 1 && sgrNum(t, params[1]) == 2:
 		return sgrTrue, 4
 	case (n >= 30 && n <= 37) || (n >= 40 && n <= 47) || (n >= 90 && n <= 97) || (n >= 100 && n <= 107):
 		return sgrColor16, 0
 	}
 	return "", 0
+}
+
+func TestSGRClasses(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"\x1b[38;2;1;2;3m", []string{sgrTrue}},
+		{"\x1b[48;2;1;2;3m", []string{sgrTrue}},
+		{"\x1b[38;5;1m", []string{sgrColor256}},
+		{"\x1b[48;5;31m", []string{sgrColor256}},
+		{"\x1b[38:2::1:2:3m", []string{sgrTrue}},
+		{"\x1b[38:2:0:1:2:3m", []string{sgrTrue}},
+		{"\x1b[1;38;5;196;48;5;21;2m", []string{sgrBold, sgrColor256, sgrFaint}},
+		{"\x1b[31;102m", []string{sgrColor16}},
+		{"\x1b[;1m", []string{sgrBold}},
+		{"\x1b[39;49m", nil},
+		{"\x1b[?25l", nil},
+		{"\x1b[m", nil},
+		{"\x1b]0;title\x07", nil},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q", tt.in), func(t *testing.T) {
+			if got := sgrClasses(t, tt.in); !slices.Equal(got, tt.want) {
+				t.Errorf("sgrClasses = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 func writeStyled(t *testing.T, environ []string) string {
@@ -1410,7 +1454,7 @@ func writeStyled(t *testing.T, environ []string) string {
 }
 
 func TestNewDashboardWriter(t *testing.T) {
-	classes := func(c ...string) []string { slices.Sort(c); return c }
+	classes := func(c ...string) []string { return slices.Sorted(slices.Values(c)) }
 	var (
 		plain   []string                                  // no escape sequences at all
 		noColor = classes(sgrBold, sgrFaint)              // decoration kept, colors dropped
@@ -1450,15 +1494,15 @@ func TestNewDashboardWriter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := writeStyled(t, tt.environ)
-			if !strings.Contains(got, "hot") {
-				t.Fatalf("text lost: %q", got)
+			output := writeStyled(t, tt.environ)
+			if !strings.Contains(output, "hot") {
+				t.Fatalf("text lost: %q", output)
 			}
-			if tt.want == nil && strings.Contains(got, "\x1b") {
-				t.Errorf("expected no escape sequences, got %q", got)
+			if len(tt.want) == 0 && strings.Contains(output, "\x1b") {
+				t.Errorf("expected no escape sequences, got %q", output)
 			}
-			if got := sgrClasses(t, got); !slices.Equal(got, tt.want) {
-				t.Errorf("SGR classes = %q, want %q", got, tt.want)
+			if classes := sgrClasses(t, output); !slices.Equal(classes, tt.want) {
+				t.Errorf("SGR classes = %q, want %q (output %q)", classes, tt.want, output)
 			}
 		})
 	}
