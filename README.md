@@ -54,7 +54,7 @@ Token and cost data is parsed from Claude Code's local JSONL conversation logs. 
 
 | Platform | Requirement               |
 | -------- | ------------------------- |
-| GNOME    | GNOME Shell 45–50         |
+| GNOME    | GNOME Shell 45–51         |
 | KDE      | Plasma 6, `kpackagetool6` |
 | Waybar   | Waybar, `jq`              |
 | macOS    | macOS 12+                 |
