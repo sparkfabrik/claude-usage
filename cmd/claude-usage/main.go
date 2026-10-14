@@ -438,9 +438,9 @@ func newDashboardWriter(w io.Writer, environ []string) io.Writer {
 }
 
 // newDashboardWriterEnv is newDashboardWriter with extra environment entries
-// appended after normalizeColorEnv. Because they come last, they can set
-// variables the normalization drops, which lets tests fake a terminal with
-// TTY_FORCE=1.
+// appended after normalizeColorEnv. It is intended for tests: colorprofile
+// lets a later duplicate key win, so the extras can set variables the
+// normalization drops, such as TTY_FORCE=1 to fake a terminal.
 func newDashboardWriterEnv(w io.Writer, environ []string, extra ...string) io.Writer {
 	return colorprofile.NewWriter(w, append(normalizeColorEnv(environ), extra...))
 }
