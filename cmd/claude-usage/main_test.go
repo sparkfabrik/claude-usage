@@ -1288,7 +1288,9 @@ func TestRunDashboard_NonexistentProjectsDir(t *testing.T) {
 }
 
 // colorEnvVars lists the environment variables colorprofile and its terminfo
-// lookup read. The host terminfo database can still influence the result.
+// lookup read. Tests set them empty rather than unset, and the host terminfo
+// database (~/.terminfo and the system paths) is still read, so results for a
+// faked terminal can still depend on the host's terminfo entry.
 var colorEnvVars = []string{
 	"TERM", "NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "COLORTERM",
 	"TTY_FORCE", "WT_SESSION", "GOOGLE_CLOUD_SHELL", "TMUX",

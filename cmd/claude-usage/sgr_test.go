@@ -20,15 +20,13 @@ const (
 )
 
 // sgrParams returns the parameters of every SGR sequence (CSI ... m) in s.
-// Only the ESC '[' introducer is recognized, the only form lipgloss and
-// colorprofile emit. The 8-bit C1 form (0x9B) is not scanned: that byte is a
-// valid UTF-8 continuation byte and would misread real text.
-// Any ASCII final byte 0x40..0x7E ends a CSI sequence.
-// Only sequences ending in 'm' are returned.
-// Parameters split on ';' only.
-// An empty parameter is 0.
-// A parameter holding ':' subfields (38:5:n) stays one group.
-// An unterminated sequence is an error.
+// It scans ESC '[' sequences, the only form lipgloss and colorprofile emit;
+// the 8-bit C1 introducer (0x9B) is skipped because it is a valid UTF-8
+// continuation byte. A sequence ends at the first ASCII final byte 0x40..0x7E
+// (IndexFunc matches runes, but a match is always one ASCII byte, so the byte
+// offset is valid) and only those ending in 'm' are returned. ';' separates
+// parameters, an empty one means 0, a ':' subparameter group stays whole, and
+// an unterminated sequence is an error.
 func sgrParams(s string) ([][]string, error) {
 	var seqs [][]string
 	for {
@@ -50,54 +48,75 @@ func sgrParams(s string) ([][]string, error) {
 	}
 }
 
-// sgrClasses returns the sorted set of style classes used by the SGR
+// sgrClassSet returns the sorted set of style classes used by the SGR
 // sequences in s, and nil when there are none.
-func sgrClasses(t *testing.T, s string) []string {
-	t.Helper()
+func sgrClassSet(s string) ([]string, error) {
 	seqs, err := sgrParams(s)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	set := map[string]bool{}
 	for _, params := range seqs {
 		for i := 0; i < len(params); i++ {
-			class, skip := classifySGR(t, params[i:])
+			class, skip, err := classifySGR(params[i:])
+			if err != nil {
+				return nil, err
+			}
 			if class != "" {
 				set[class] = true
 			}
 			i += skip
 		}
 	}
-	return slices.Sorted(maps.Keys(set))
+	return slices.Sorted(maps.Keys(set)), nil
 }
 
-// assertSGR checks that output uses exactly the style classes in want. An
-// empty want asserts no escape byte at all: sgrClasses ignores non-SGR
-// sequences, so the raw check also catches those.
-func assertSGR(t *testing.T, output string, want []string) {
+func sgrClasses(t *testing.T, s string) []string {
 	t.Helper()
+	got, err := sgrClassSet(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// checkSGR checks that output uses exactly the style classes in want. An
+// empty want asserts no escape byte at all: sgrClassSet ignores non-SGR
+// sequences, so the raw check also catches those.
+func checkSGR(output string, want []string) error {
 	if len(want) == 0 {
 		if strings.Contains(output, "\x1b") {
-			t.Errorf("expected no escape sequences, got %q", output)
+			return fmt.Errorf("expected no escape sequences")
 		}
-		return
+		return nil
 	}
-	if got := sgrClasses(t, output); !slices.Equal(got, want) {
-		t.Errorf("SGR classes = %q, want %q (output %q)", got, want, output)
+	got, err := sgrClassSet(output)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(got, want) {
+		return fmt.Errorf("SGR classes = %q, want %q", got, want)
+	}
+	return nil
+}
+
+func assertSGR(t *testing.T, output string, want []string) {
+	t.Helper()
+	if err := checkSGR(output, want); err != nil {
+		t.Errorf("%v (output %q)", err, output)
 	}
 }
 
 // sgrNum parses one SGR parameter; empty means 0.
-func sgrNum(t *testing.T, p string) int {
-	t.Helper()
+func sgrNum(p string) (int, error) {
 	if p == "" {
-		return 0
+		return 0, nil
 	}
 	n, err := strconv.Atoi(p)
 	if err != nil {
-		t.Fatalf("bad SGR parameter %q", p)
+		return 0, fmt.Errorf("bad SGR parameter %q", p)
 	}
-	return n
+	return n, nil
 }
 
 // isColorIntroducer reports whether n starts an extended color (foreground,
@@ -107,35 +126,44 @@ func isColorIntroducer(n int) bool { return n == 38 || n == 48 || n == 58 }
 // classifySGR classifies params[0] and reports how many following ';'
 // parameters it consumed. A ':' group is self-contained and consumes none.
 // Resets (0, 22, 39, 49, 59) have no class.
-func classifySGR(t *testing.T, params []string) (class string, skip int) {
-	t.Helper()
+func classifySGR(params []string) (class string, skip int, err error) {
+	num := func(p string) int {
+		n, e := sgrNum(p)
+		if e != nil && err == nil {
+			err = e
+		}
+		return n
+	}
 	if sub := strings.Split(params[0], ":"); len(sub) > 1 {
-		if isColorIntroducer(sgrNum(t, sub[0])) {
-			switch sgrNum(t, sub[1]) {
+		if isColorIntroducer(num(sub[0])) {
+			switch num(sub[1]) {
 			case 5:
-				return sgrColor256, 0
+				return sgrColor256, 0, err
 			case 2:
-				return sgrTrueColor, 0
+				return sgrTrueColor, 0, err
 			}
 		}
-		return sgrOther, 0
+		return sgrOther, 0, err
 	}
-	n := sgrNum(t, params[0])
+	n := num(params[0])
+	if err != nil {
+		return "", 0, err
+	}
 	switch {
 	case n == 0 || n == 22 || n == 39 || n == 49 || n == 59:
-		return "", 0
+		return "", 0, nil
 	case n == 1:
-		return sgrBold, 0
+		return sgrBold, 0, nil
 	case n == 2:
-		return sgrFaint, 0
-	case isColorIntroducer(n) && len(params) > 1 && sgrNum(t, params[1]) == 5:
-		return sgrColor256, 2
-	case isColorIntroducer(n) && len(params) > 1 && sgrNum(t, params[1]) == 2:
-		return sgrTrueColor, 4
+		return sgrFaint, 0, nil
+	case isColorIntroducer(n) && len(params) > 1 && num(params[1]) == 5:
+		return sgrColor256, 2, err
+	case isColorIntroducer(n) && len(params) > 1 && num(params[1]) == 2:
+		return sgrTrueColor, 4, err
 	case (n >= 30 && n <= 37) || (n >= 40 && n <= 47) || (n >= 90 && n <= 97) || (n >= 100 && n <= 107):
-		return sgrColor16, 0
+		return sgrColor16, 0, nil
 	}
-	return sgrOther, 0
+	return sgrOther, 0, err
 }
 
 func TestSGRClasses(t *testing.T) {
@@ -201,6 +229,30 @@ func TestSGRParams(t *testing.T) {
 			}
 			if !slices.EqualFunc(got, tt.want, slices.Equal[[]string]) {
 				t.Errorf("sgrParams = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckSGR(t *testing.T) {
+	tests := []struct {
+		name    string
+		output  string
+		want    []string
+		wantErr bool
+	}{
+		{"empty want plain text", "plain", nil, false},
+		{"empty want SGR", "\x1b[1m", nil, true},
+		{"empty want non-SGR", "\x1b[?25l", nil, true},
+		{"wrong class", "\x1b[1;38;5;196m", []string{sgrBold, sgrColor16}, true},
+		{"bold", "\x1b[1m", []string{sgrBold}, false},
+		{"bold and 256", "\x1b[1;38;5;196m", []string{sgrBold, sgrColor256}, false},
+		{"unterminated", "\x1b[1;38;5", []string{sgrBold}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := checkSGR(tt.output, tt.want); (err != nil) != tt.wantErr {
+				t.Errorf("checkSGR err = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
