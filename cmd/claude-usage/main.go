@@ -434,7 +434,15 @@ func colorForPct(pct int, cfg *config.Config) string {
 // NO_COLOR (or CLICOLOR=0) asks for it, and colors are downgraded to what the
 // terminal supports. Bold and faint survive NO_COLOR on terminals.
 func newDashboardWriter(w io.Writer, environ []string) io.Writer {
-	return colorprofile.NewWriter(w, normalizeColorEnv(environ))
+	return newDashboardWriterEnv(w, environ)
+}
+
+// newDashboardWriterEnv is newDashboardWriter with extra environment entries
+// appended after normalizeColorEnv. Because they come last, they can set
+// variables the normalization drops, which lets tests fake a terminal with
+// TTY_FORCE=1.
+func newDashboardWriterEnv(w io.Writer, environ []string, extra ...string) io.Writer {
+	return colorprofile.NewWriter(w, append(normalizeColorEnv(environ), extra...))
 }
 
 // normalizeColorEnv maps the color environment variables onto the forms

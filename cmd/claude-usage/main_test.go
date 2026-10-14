@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/colorprofile"
 	"github.com/sparkfabrik/claude-usage/internal/auth"
 	"github.com/sparkfabrik/claude-usage/internal/cache"
 	"github.com/sparkfabrik/claude-usage/internal/config"
@@ -1331,21 +1330,21 @@ const (
 )
 
 // sgrParams returns the parameters of every SGR sequence (CSI ... m) in s.
-// CSI is ESC '[' or the 8-bit introducer 0x9B. Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
+// Only the ESC '[' introducer is recognized, the only form lipgloss and
+// colorprofile emit. The 8-bit C1 form (0x9B) is not scanned: that byte is a
+// valid UTF-8 continuation byte and would misread real text.
+// Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
 // Parameters split on ';' only. An empty parameter is 0, and a parameter
 // holding ':' subfields (38:5:n) stays one group.
 func sgrParams(t *testing.T, s string) [][]string {
 	t.Helper()
 	var seqs [][]string
 	for {
-		start, width := strings.Index(s, "\x1b["), 2
-		if c1 := strings.Index(s, "\x9b"); c1 >= 0 && (start < 0 || c1 < start) {
-			start, width = c1, 1
-		}
+		start := strings.Index(s, "\x1b[")
 		if start < 0 {
 			return seqs
 		}
-		s = s[start+width:]
+		s = s[start+2:]
 		end := strings.IndexFunc(s, func(r rune) bool { return r >= 0x40 && r <= 0x7e })
 		if end < 0 {
 			t.Fatalf("unterminated escape sequence in %q", s)
@@ -1436,7 +1435,6 @@ func TestSGRClasses(t *testing.T) {
 		{"\x1b[58;2;1;2;3m", []string{sgrTrue}},
 		{"\x1b[58:2::1:2:3m", []string{sgrTrue}},
 		{"\x1b[58;2;1;2;3;1m", []string{sgrBold, sgrTrue}},
-		{"\x9b38;5;1m", []string{sgrColor256}},
 		{"\x1b[38:2::1:2:3m", []string{sgrTrue}},
 		{"\x1b[38:2:0:1:2:3m", []string{sgrTrue}},
 		{"\x1b[1;38;5;196;48;5;21;2m", []string{sgrBold, sgrColor256, sgrFaint}},
@@ -1457,14 +1455,14 @@ func TestSGRClasses(t *testing.T) {
 }
 
 // writeStyled writes styled through the dashboard writer. A terminal case
-// mirrors newDashboardWriter but fakes the terminal with TTY_FORCE, appended
-// after normalizeColorEnv, which drops it. Other cases use newDashboardWriter.
+// fakes the terminal with TTY_FORCE via newDashboardWriterEnv, which appends
+// it after normalizeColorEnv drops it. Other cases use newDashboardWriter.
 func writeStyled(t *testing.T, environ []string, terminal bool) string {
 	t.Helper()
 	var buf bytes.Buffer
 	var w io.Writer
 	if terminal {
-		w = colorprofile.NewWriter(&buf, append(normalizeColorEnv(environ), "TTY_FORCE=1"))
+		w = newDashboardWriterEnv(&buf, environ, "TTY_FORCE=1")
 	} else {
 		w = newDashboardWriter(&buf, environ)
 	}
