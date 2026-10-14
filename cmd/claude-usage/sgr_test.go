@@ -9,18 +9,14 @@ import (
 	"testing"
 )
 
-// styled is bold, faint text with a 256-color foreground (196) and
-// background (21), so a leak of any style class shows up in the output.
-const styled = "\x1b[1;2;38;5;196;48;5;21mhot\x1b[m"
-
 // SGR style classes found in an escape-sequence stream.
 const (
-	sgrColor16  = "color16"
-	sgrColor256 = "color256"
-	sgrTrue     = "truecolor"
-	sgrBold     = "bold"
-	sgrFaint    = "faint"
-	sgrOther    = "other" // any style not listed above, so new output is noticed
+	sgrColor16   = "color16"
+	sgrColor256  = "color256"
+	sgrTrueColor = "truecolor"
+	sgrBold      = "bold"
+	sgrFaint     = "faint"
+	sgrOther     = "other" // any style not listed above, so new output is noticed
 )
 
 // sgrParams returns the parameters of every SGR sequence (CSI ... m) in s.
@@ -34,11 +30,11 @@ func sgrParams(t *testing.T, s string) [][]string {
 	t.Helper()
 	var seqs [][]string
 	for {
-		start := strings.Index(s, "\x1b[")
-		if start < 0 {
+		_, rest, found := strings.Cut(s, "\x1b[")
+		if !found {
 			return seqs
 		}
-		s = s[start+2:]
+		s = rest
 		end := strings.IndexFunc(s, func(r rune) bool { return r >= 0x40 && r <= 0x7e })
 		if end < 0 {
 			t.Fatalf("unterminated escape sequence in %q", s)
@@ -97,7 +93,7 @@ func classifySGR(t *testing.T, params []string) (class string, skip int) {
 			case 5:
 				return sgrColor256, 0
 			case 2:
-				return sgrTrue, 0
+				return sgrTrueColor, 0
 			}
 		}
 		return sgrOther, 0
@@ -113,7 +109,7 @@ func classifySGR(t *testing.T, params []string) (class string, skip int) {
 	case isColorIntroducer(n) && len(params) > 1 && sgrNum(t, params[1]) == 5:
 		return sgrColor256, 2
 	case isColorIntroducer(n) && len(params) > 1 && sgrNum(t, params[1]) == 2:
-		return sgrTrue, 4
+		return sgrTrueColor, 4
 	case (n >= 30 && n <= 37) || (n >= 40 && n <= 47) || (n >= 90 && n <= 97) || (n >= 100 && n <= 107):
 		return sgrColor16, 0
 	}
@@ -125,19 +121,19 @@ func TestSGRClasses(t *testing.T) {
 		in   string
 		want []string
 	}{
-		{"\x1b[38;2;1;2;3m", []string{sgrTrue}},
-		{"\x1b[48;2;1;2;3m", []string{sgrTrue}},
+		{"\x1b[38;2;1;2;3m", []string{sgrTrueColor}},
+		{"\x1b[48;2;1;2;3m", []string{sgrTrueColor}},
 		{"\x1b[38;5;1m", []string{sgrColor256}},
 		{"\x1b[48;5;31m", []string{sgrColor256}},
 		{"\x1b[38:5:196m", []string{sgrColor256}},
 		{"\x1b[48:5:21m", []string{sgrColor256}},
 		{"\x1b[58;5;9m", []string{sgrColor256}},
 		{"\x1b[58:5:9m", []string{sgrColor256}},
-		{"\x1b[58;2;1;2;3m", []string{sgrTrue}},
-		{"\x1b[58:2::1:2:3m", []string{sgrTrue}},
-		{"\x1b[58;2;1;2;3;1m", []string{sgrBold, sgrTrue}},
-		{"\x1b[38:2::1:2:3m", []string{sgrTrue}},
-		{"\x1b[38:2:0:1:2:3m", []string{sgrTrue}},
+		{"\x1b[58;2;1;2;3m", []string{sgrTrueColor}},
+		{"\x1b[58:2::1:2:3m", []string{sgrTrueColor}},
+		{"\x1b[58;2;1;2;3;1m", []string{sgrBold, sgrTrueColor}},
+		{"\x1b[38:2::1:2:3m", []string{sgrTrueColor}},
+		{"\x1b[38:2:0:1:2:3m", []string{sgrTrueColor}},
 		{"\x1b[1;38;5;196;48;5;21;2m", []string{sgrBold, sgrColor256, sgrFaint}},
 		{"\x1b[31;102m", []string{sgrColor16}},
 		{"\x1b[;1m", []string{sgrBold}},
