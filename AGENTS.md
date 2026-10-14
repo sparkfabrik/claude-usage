@@ -119,7 +119,7 @@ Flag combinations: `--status` (cached or poll), `--status --force-poll` (always 
 > **Keep this up to date.** When adding, removing, or renaming packages/files, update this tree.
 
 ```
-cmd/claude-usage/         CLI entry point (main.go, main_test.go)
+cmd/claude-usage/         CLI entry point (main.go, main_test.go, sgr_test.go: SGR escape test helpers)
 internal/
   analyzer/               Token aggregation, time periods, per-model breakdown
   auth/                   OAuth credential loading from ~/.claude/
