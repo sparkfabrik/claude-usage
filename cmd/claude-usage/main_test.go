@@ -1287,9 +1287,9 @@ func TestRunDashboard_NonexistentProjectsDir(t *testing.T) {
 	}
 }
 
-// colorEnvVars lists every variable colorprofile reads besides TERM.
+// colorEnvVars lists every variable colorprofile reads.
 var colorEnvVars = []string{
-	"NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "COLORTERM",
+	"TERM", "NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "COLORTERM",
 	"TTY_FORCE", "WT_SESSION", "GOOGLE_CLOUD_SHELL", "TMUX",
 }
 
