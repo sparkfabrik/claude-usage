@@ -35,7 +35,8 @@ $(GOLANGCI_LINT):
 	@tar xzf $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) -C $(BIN_DIR) --strip-components=1 \
 		golangci-lint-$(GOLANGCI_LINT_VERSION)-$(OS)-$(ARCH)/golangci-lint
 	@mv $(BIN_DIR)/golangci-lint $(GOLANGCI_LINT)
-	@for f in $(BIN_DIR)/golangci-lint $(BIN_DIR)/golangci-lint-*; do \
+	@# Remove older pinned golangci-lint-<version> binaries; the legacy unversioned one was already moved by the mv above.
+	@for f in $(BIN_DIR)/golangci-lint-*; do \
 		if [ -e "$${f}" ] && [ "$${f}" != "$(GOLANGCI_LINT)" ]; then rm -f "$${f}"; fi; \
 	done
 	@rm -f $(BIN_DIR)/$(GOLANGCI_LINT_TARBALL) $(BIN_DIR)/checksums.txt
