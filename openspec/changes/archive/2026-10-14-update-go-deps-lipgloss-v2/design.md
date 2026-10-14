@@ -24,7 +24,7 @@ The repository has a single Go module, which also builds the macOS tray (no lipg
 
 ### Adapt colors at the writer, inside `runDashboard`
 
-`runDashboard` wraps the writer it receives with `colorprofile.NewWriter(w, os.Environ())` before writing anything. The colorprofile writer detects the profile from the destination and the environment: no TTY strips every escape sequence, `NO_COLOR` drops colors, and limited terminals get colors downgraded.
+`runDashboard` wraps the writer it receives with `newDashboardWriter` before writing anything. `newDashboardWriter` hands `colorprofile.NewWriter` the environment after `normalizeColorEnv`. The colorprofile writer detects the profile from the destination and the environment: no TTY strips every escape sequence, `NO_COLOR` drops colors, and limited terminals get colors downgraded.
 
 Wrapping inside `runDashboard` rather than at the `os.Stdout` call site means the tests that pass a `bytes.Buffer` exercise the same path as production. A buffer is not a TTY, so tests see plain text, as they did with v1.
 

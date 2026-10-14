@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1328,64 +1329,75 @@ const (
 	sgrFaint    = "faint"
 )
 
-// sgrClasses returns the sorted, comma-joined set of style classes used by
-// the SGR sequences in s, and "" when there are none.
-func sgrClasses(t *testing.T, s string) string {
+// sgrParams returns the parameter list of every SGR sequence (CSI ... m) in
+// s. Any byte in 0x40..0x7E ends a CSI sequence; only 'm' ones are returned.
+// Both ';' and ':' separate parameters, so the colon form 38:5:n parses too.
+func sgrParams(t *testing.T, s string) [][]int {
 	t.Helper()
-	set := map[string]bool{}
+	var seqs [][]int
 	for {
 		start := strings.Index(s, "\x1b[")
 		if start < 0 {
-			break
+			return seqs
 		}
 		s = s[start+2:]
-		end := strings.IndexAny(s, "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~")
+		end := strings.IndexFunc(s, func(r rune) bool { return r >= 0x40 && r <= 0x7e })
 		if end < 0 {
 			t.Fatalf("unterminated escape sequence in %q", s)
 		}
-		final := s[end]
-		params := s[:end]
+		params, final := s[:end], s[end]
 		s = s[end+1:]
 		if final != 'm' {
 			continue
 		}
 		var nums []int
-		for _, p := range strings.Split(params, ";") {
-			n := 0
-			if p != "" {
-				var err error
-				if n, err = strconv.Atoi(p); err != nil {
-					t.Fatalf("bad SGR parameter %q", p)
-				}
+		for _, p := range strings.FieldsFunc(params, func(r rune) bool { return r == ';' || r == ':' }) {
+			n, err := strconv.Atoi(p)
+			if err != nil {
+				t.Fatalf("bad SGR parameter %q", p)
 			}
 			nums = append(nums, n)
 		}
+		if len(nums) == 0 {
+			nums = []int{0} // "\x1b[m" is a reset
+		}
+		seqs = append(seqs, nums)
+	}
+}
+
+// sgrClasses returns the sorted set of style classes used by the SGR
+// sequences in s, and nil when there are none.
+func sgrClasses(t *testing.T, s string) []string {
+	t.Helper()
+	set := map[string]bool{}
+	for _, nums := range sgrParams(t, s) {
 		for i := 0; i < len(nums); i++ {
-			n := nums[i]
-			switch {
-			case n == 1:
-				set[sgrBold] = true
-			case n == 2:
-				set[sgrFaint] = true
-			case n == 38 || n == 48:
-				if i+1 < len(nums) && nums[i+1] == 5 {
-					set[sgrColor256] = true
-					i += 2
-				} else if i+1 < len(nums) && nums[i+1] == 2 {
-					set[sgrTrue] = true
-					i += 4
-				}
-			case (n >= 30 && n <= 37) || (n >= 40 && n <= 47) || (n >= 90 && n <= 97) || (n >= 100 && n <= 107):
-				set[sgrColor16] = true
+			if class, skip := classifySGR(nums[i:]); class != "" {
+				set[class] = true
+				i += skip
 			}
 		}
 	}
-	classes := make([]string, 0, len(set))
-	for c := range set {
-		classes = append(classes, c)
+	return slices.Sorted(maps.Keys(set))
+}
+
+// classifySGR classifies the parameter at nums[0] and reports how many
+// following parameters it consumed.
+func classifySGR(nums []int) (class string, skip int) {
+	n := nums[0]
+	switch {
+	case n == 1:
+		return sgrBold, 0
+	case n == 2:
+		return sgrFaint, 0
+	case (n == 38 || n == 48) && len(nums) > 1 && nums[1] == 5:
+		return sgrColor256, 2
+	case (n == 38 || n == 48) && len(nums) > 1 && nums[1] == 2:
+		return sgrTrue, 4
+	case (n >= 30 && n <= 37) || (n >= 40 && n <= 47) || (n >= 90 && n <= 97) || (n >= 100 && n <= 107):
+		return sgrColor16, 0
 	}
-	sort.Strings(classes)
-	return strings.Join(classes, ",")
+	return "", 0
 }
 
 func writeStyled(t *testing.T, environ []string) string {
@@ -1398,18 +1410,21 @@ func writeStyled(t *testing.T, environ []string) string {
 }
 
 func TestNewDashboardWriter(t *testing.T) {
+	classes := func(c ...string) []string { slices.Sort(c); return c }
+	var (
+		plain   []string                                  // no escape sequences at all
+		noColor = classes(sgrBold, sgrFaint)              // decoration kept, colors dropped
+		ansi16  = classes(sgrBold, sgrColor16, sgrFaint)  // downgraded to the 16-color palette
+		ansi256 = classes(sgrBold, sgrColor256, sgrFaint) // full 256-color output
+	)
 	const (
-		plain     = ""                                           // no escape sequences at all
-		noColor   = sgrBold + "," + sgrFaint                     // decoration kept, colors dropped
-		ansi16    = sgrBold + "," + sgrColor16 + "," + sgrFaint  // downgraded to the 16-color palette
-		ansi256   = sgrBold + "," + sgrColor256 + "," + sgrFaint // full 256-color output
 		tty256    = "TERM=xterm-256color"
 		ttyForced = "TTY_FORCE=1"
 	)
 	tests := []struct {
 		name    string
 		environ []string
-		want    string // exact set of SGR classes expected in the output
+		want    []string // exact set of SGR classes expected in the output
 	}{
 		{"not a terminal", []string{tty256, "COLORTERM=truecolor"}, plain},
 		{"256-color terminal", []string{tty256, ttyForced}, ansi256},
@@ -1439,11 +1454,11 @@ func TestNewDashboardWriter(t *testing.T) {
 			if !strings.Contains(got, "hot") {
 				t.Fatalf("text lost: %q", got)
 			}
-			if tt.want == "" && strings.Contains(got, "\x1b") {
+			if tt.want == nil && strings.Contains(got, "\x1b") {
 				t.Errorf("expected no escape sequences, got %q", got)
 			}
-			if classes := sgrClasses(t, got); classes != tt.want {
-				t.Errorf("SGR classes = %q, want %q (output %q)", classes, tt.want, got)
+			if got := sgrClasses(t, got); !slices.Equal(got, tt.want) {
+				t.Errorf("SGR classes = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -1470,7 +1485,7 @@ func TestNormalizeColorEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := normalizeColorEnv(tt.in)
-			if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
+			if !slices.Equal(got, tt.want) {
 				t.Errorf("normalizeColorEnv(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})

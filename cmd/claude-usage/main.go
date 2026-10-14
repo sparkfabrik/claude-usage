@@ -448,6 +448,7 @@ func newDashboardWriter(w io.Writer, environ []string) io.Writer {
 //     value other than "0";
 //   - any non-empty CLICOLOR_FORCE other than "0" forces colors.
 func normalizeColorEnv(environ []string) []string {
+	// Duplicate keys: any non-empty NO_COLOR wins, the last CLICOLOR_FORCE wins.
 	var noColor, cliColorOff, force bool
 	env := make([]string, 0, len(environ)+1)
 	for _, kv := range environ {
