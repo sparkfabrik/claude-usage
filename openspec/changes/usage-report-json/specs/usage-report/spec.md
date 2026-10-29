@@ -16,7 +16,7 @@ Top-level fields: `schema`, `version`, `generated_at`, `window`, `cost_basis`, `
 
 - `schema` is `claude-usage/report/1`. It changes only when a field is renamed or removed; additions keep the value.
 - `window` carries `label`, `from` and `to` as RFC 3339 in UTC, `timezone` (the local zone name, or its abbreviation when the zone is unnamed) and `utc_offset` as `+hh:mm`.
-- `totals` carries `tokens` (`input`, `output`, `cache_write`, `cache_read`, `total`), `cost_usd`, `requests`, `sessions`, `active_days`.
+- `totals` carries `tokens` (`input`, `output`, `cache_write`, `cache_write_1h`, `cache_read`, `total`), `cost_usd`, `requests`, `sessions`, `active_days`. `cache_write_1h` is the part of `cache_write` written with the 1-hour cache lifetime; `total` counts it once.
 - `models[]` is ordered heaviest first and carries `id` (the identifier found in the transcripts), `name` (display form), `tokens`, `cost_usd`, `requests`, `priced`.
 - `sessions` carries `count`, `cost_median_usd`, `cost_p90_usd`.
 
@@ -32,7 +32,7 @@ Top-level fields: `schema`, `version`, `generated_at`, `window`, `cost_basis`, `
 
 ## Pricing
 
-Every `cost_usd` is computed from the token counts at the list prices of the built-in table, or at the overrides from the configuration file when present, in which case `pricing` is `config` instead of `bundled`. `cost_basis` states the rule in words: list prices, cache writes at the 5-minute rate.
+Every `cost_usd` is computed from the token counts at the list prices of the built-in table, or at the overrides from the configuration file when present, in which case `pricing` is `config` instead of `bundled`. Cache writes are priced at the rate of the cache lifetime the transcript records for each request: the 5-minute rate for `cache_write` less `cache_write_1h`, the 1-hour rate for `cache_write_1h`; a line without the breakdown is all 5-minute writes. An override that leaves `cache_write_1h` out gets 1.6x its `cache_write`. `cost_basis` states the rule in words: list prices, cache writes at their recorded TTL rate.
 
 A model without a row, a prefix or an override is costed with the fallback price, reported with `priced: false` on its row and listed in `unpriced_models`, so the figure is recognisable as a guess.
 

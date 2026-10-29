@@ -40,11 +40,15 @@ type Colors struct {
 	OrangeBelow int `yaml:"orange_below"`
 }
 
+// ModelPricing is one model's prices per 1M tokens, USD. CacheWrite is the
+// 5-minute cache write rate; CacheWrite1h the 1-hour one, derived as 1.6x
+// CacheWrite when left out.
 type ModelPricing struct {
-	Input      float64 `yaml:"input"`
-	Output     float64 `yaml:"output"`
-	CacheWrite float64 `yaml:"cache_write"`
-	CacheRead  float64 `yaml:"cache_read"`
+	Input        float64 `yaml:"input"`
+	Output       float64 `yaml:"output"`
+	CacheWrite   float64 `yaml:"cache_write"`
+	CacheWrite1h float64 `yaml:"cache_write_1h"`
+	CacheRead    float64 `yaml:"cache_read"`
 }
 
 type Cache struct {

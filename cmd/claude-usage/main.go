@@ -621,10 +621,11 @@ func buildPricingOverrides(cfg *config.Config) map[string]pricing.ModelPrice {
 	overrides := make(map[string]pricing.ModelPrice, len(cfg.Pricing))
 	for model, p := range cfg.Pricing {
 		overrides[model] = pricing.ModelPrice{
-			Input:      p.Input,
-			Output:     p.Output,
-			CacheWrite: p.CacheWrite,
-			CacheRead:  p.CacheRead,
+			Input:        p.Input,
+			Output:       p.Output,
+			CacheWrite:   p.CacheWrite,
+			CacheWrite1h: p.CacheWrite1h,
+			CacheRead:    p.CacheRead,
 		}
 	}
 	return overrides

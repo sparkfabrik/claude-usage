@@ -8,7 +8,8 @@ Two things in the way stop an export from being correct today. The price table e
 
 - **New `--report <period>`** prints one JSON document for `today`, `7d`, `30d` or `all` and exits: tokens by type (input, output, cache read, cache write) and cost, in total and per model; request count; session count with median and p90 cost per session; active days; the window with its time zone. It reads the local transcripts and the price table only: no network, no credentials, no cache file. It outputs no project path, session id or other identifying data.
 - **New `internal/report`** holds the aggregation and the document types; `schema` is `claude-usage/report/1`.
-- **Price table** gains the Claude 5 generation (Fable 5.1 and 5, Mythos 5.1 and 5, Opus 5.5 and 5, Sonnet 5.5 and 5, Haiku 5.5) with prefixes for date-suffixed variants. `pricing.Known` tells whether a model has a price of its own; the report flags the ones that do not.
+- **Price table** gains the Claude 5 generation (Fable 5.1 and 5, Mythos 5.1 and 5, Opus 5.5 and 5, Sonnet 5.5 and 5, Haiku 5.5) with prefixes for date-suffixed variants, and a 1-hour cache write rate for every row. `pricing.Known` tells whether a model has a price of its own; the report flags the ones that do not.
+- **Cache writes** are priced at the rate of the cache lifetime each request used, read from the `usage.cache_creation` breakdown the transcripts carry, instead of the 5-minute rate for all of them. The config override format gains an optional `cache_write_1h`.
 - **Reader** keys sessions on the transcript's `sessionId` field, falling back to the file name, so a subagent's requests count toward the session that spawned it. It skips the `<synthetic>` model Claude Code writes for its own messages.
 
 ## Capabilities
@@ -26,4 +27,5 @@ Two things in the way stop an export from being correct today. The price table e
 - `--status` and its schema are untouched; readers are unaffected.
 - The dashboard's session count stops counting subagent transcripts as sessions; token totals do not change.
 - Costs of current models change from the fallback rate to their list price, in the dashboard and in `--status`'s `today.cost_usd`.
+- Costs rise where the 1-hour cache was used: the main conversation on a subscription. On a machine checked over 30 days, 56% of the cache writes were 1-hour ones and the estimate was 10% low.
 - Closes sparkfabrik/claude-usage#21.

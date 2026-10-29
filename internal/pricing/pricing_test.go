@@ -116,7 +116,7 @@ func TestGet_LegacySonnetPrefix(t *testing.T) {
 }
 
 func TestCalculate(t *testing.T) {
-	cost := Calculate(1_000_000, 500_000, 200_000, 100_000, "claude-sonnet-4", nil)
+	cost := Calculate(1_000_000, 500_000, 200_000, 0, 100_000, "claude-sonnet-4", nil)
 	// 1M * 3.0/1M + 500K * 15.0/1M + 200K * 3.75/1M + 100K * 0.30/1M
 	// = 3.0 + 7.5 + 0.75 + 0.03 = 11.28
 	want := 11.28
@@ -126,9 +126,9 @@ func TestCalculate(t *testing.T) {
 }
 
 func TestCalculate_ZeroTokens(t *testing.T) {
-	cost := Calculate(0, 0, 0, 0, "claude-sonnet-4", nil)
+	cost := Calculate(0, 0, 0, 0, 0, "claude-sonnet-4", nil)
 	if cost != 0 {
-		t.Errorf("Calculate(0,0,0,0) = %f, want 0", cost)
+		t.Errorf("Calculate(0,0,0,0,0) = %f, want 0", cost)
 	}
 }
 
@@ -136,7 +136,7 @@ func TestCalculate_WithOverrides(t *testing.T) {
 	overrides := map[string]ModelPrice{
 		"test-model": {Input: 10.0, Output: 10.0, CacheWrite: 10.0, CacheRead: 10.0},
 	}
-	cost := Calculate(1_000_000, 0, 0, 0, "test-model", overrides)
+	cost := Calculate(1_000_000, 0, 0, 0, 0, "test-model", overrides)
 	if math.Abs(cost-10.0) > 0.01 {
 		t.Errorf("Calculate = %f, want 10.0", cost)
 	}
@@ -173,26 +173,26 @@ func TestDefaultPricing_AllModelsPresent(t *testing.T) {
 
 func TestGet_Claude5Generation(t *testing.T) {
 	tests := []struct {
-		model                 string
-		input, output, cw, cr float64
+		model                       string
+		input, output, cw, cw1h, cr float64
 	}{
-		{"claude-fable-5-1", 10.0, 50.0, 12.5, 0.25},
-		{"claude-fable-5-1-20260901", 10.0, 50.0, 12.5, 0.25},
-		{"claude-mythos-5-1", 10.0, 50.0, 12.5, 0.25},
-		{"claude-fable-5", 10.0, 50.0, 12.5, 1.0},
-		{"claude-opus-5-5", 4.0, 20.0, 5.0, 0.20},
-		{"claude-opus-5-5-20260701", 4.0, 20.0, 5.0, 0.20},
-		{"claude-opus-5", 5.0, 25.0, 6.25, 0.50},
-		{"claude-sonnet-5-5", 2.0, 10.0, 2.5, 0.10},
-		{"claude-sonnet-5", 2.0, 10.0, 2.5, 0.20},
-		{"claude-haiku-5-5", 0.10, 0.50, 0.125, 0.01},
-		{"claude-haiku-5-5-20260301", 0.10, 0.50, 0.125, 0.01},
+		{"claude-fable-5-1", 10.0, 50.0, 12.5, 20.0, 0.25},
+		{"claude-fable-5-1-20260901", 10.0, 50.0, 12.5, 20.0, 0.25},
+		{"claude-mythos-5-1", 10.0, 50.0, 12.5, 20.0, 0.25},
+		{"claude-fable-5", 10.0, 50.0, 12.5, 20.0, 1.0},
+		{"claude-opus-5-5", 4.0, 20.0, 5.0, 8.0, 0.20},
+		{"claude-opus-5-5-20260701", 4.0, 20.0, 5.0, 8.0, 0.20},
+		{"claude-opus-5", 5.0, 25.0, 6.25, 10.0, 0.50},
+		{"claude-sonnet-5-5", 2.0, 10.0, 2.5, 4.0, 0.10},
+		{"claude-sonnet-5", 2.0, 10.0, 2.5, 4.0, 0.20},
+		{"claude-haiku-5-5", 0.10, 0.50, 0.125, 0.20, 0.01},
+		{"claude-haiku-5-5-20260301", 0.10, 0.50, 0.125, 0.20, 0.01},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {
 			p := Get(tt.model, nil)
-			if p.Input != tt.input || p.Output != tt.output || p.CacheWrite != tt.cw || p.CacheRead != tt.cr {
-				t.Errorf("Get(%q) = %+v, want %v/%v/%v/%v", tt.model, p, tt.input, tt.output, tt.cw, tt.cr)
+			if p.Input != tt.input || p.Output != tt.output || p.CacheWrite != tt.cw || p.CacheWrite1h != tt.cw1h || p.CacheRead != tt.cr {
+				t.Errorf("Get(%q) = %+v, want %v/%v/%v/%v/%v", tt.model, p, tt.input, tt.output, tt.cw, tt.cw1h, tt.cr)
 			}
 		})
 	}
@@ -225,9 +225,63 @@ func TestKnown(t *testing.T) {
 }
 
 func TestCalculate_Fable51(t *testing.T) {
-	cost := Calculate(1_000_000, 100_000, 200_000, 4_000_000, "claude-fable-5-1", nil)
+	cost := Calculate(1_000_000, 100_000, 200_000, 0, 4_000_000, "claude-fable-5-1", nil)
 	// 10 + 5 + 2.5 + 1.0 = 18.5
 	if math.Abs(cost-18.5) > 0.0001 {
 		t.Errorf("Calculate = %f, want 18.5", cost)
+	}
+}
+
+// Every row of the pricing page prices a 1-hour cache write at 2x input and a
+// 5-minute one at 1.25x; the table must keep that shape.
+func TestDefaultPricing_CacheWriteRates(t *testing.T) {
+	for model, p := range DefaultPricing {
+		if math.Abs(p.CacheWrite1h-2*p.Input) > 1e-9 {
+			t.Errorf("%s: CacheWrite1h = %v, want 2x input = %v", model, p.CacheWrite1h, 2*p.Input)
+		}
+		if math.Abs(p.CacheWrite-1.25*p.Input) > 1e-9 {
+			t.Errorf("%s: CacheWrite = %v, want 1.25x input = %v", model, p.CacheWrite, 1.25*p.Input)
+		}
+	}
+}
+
+// An override from the config file may leave the 1-hour rate out; it is then
+// 1.6x the 5-minute rate, the ratio of 2x to 1.25x input.
+func TestGet_OverrideDerivesCacheWrite1h(t *testing.T) {
+	overrides := map[string]ModelPrice{
+		"m": {Input: 10, Output: 50, CacheWrite: 12.5, CacheRead: 1},
+	}
+	if p := Get("m", overrides); math.Abs(p.CacheWrite1h-20.0) > 1e-9 {
+		t.Errorf("CacheWrite1h = %v, want 20.0 derived from 12.5", p.CacheWrite1h)
+	}
+	overrides["m"] = ModelPrice{Input: 10, Output: 50, CacheWrite: 12.5, CacheWrite1h: 33, CacheRead: 1}
+	if p := Get("m", overrides); p.CacheWrite1h != 33 {
+		t.Errorf("CacheWrite1h = %v, want the explicit 33", p.CacheWrite1h)
+	}
+}
+
+func TestCalculate_CacheWrite1hAtItsOwnRate(t *testing.T) {
+	// Fable 5.1: 1M cache writes, 400K of them 1-hour.
+	// 600K * 12.5 + 400K * 20 per million = 7.5 + 8 = 15.5
+	cost := Calculate(0, 0, 1_000_000, 400_000, 0, "claude-fable-5-1", nil)
+	if math.Abs(cost-15.5) > 1e-9 {
+		t.Errorf("Calculate = %f, want 15.5", cost)
+	}
+	// All 1-hour: 20.
+	if cost := Calculate(0, 0, 1_000_000, 1_000_000, 0, "claude-fable-5-1", nil); math.Abs(cost-20.0) > 1e-9 {
+		t.Errorf("all 1h: Calculate = %f, want 20.0", cost)
+	}
+	// None 1-hour: unchanged from before, 12.5.
+	if cost := Calculate(0, 0, 1_000_000, 0, 0, "claude-fable-5-1", nil); math.Abs(cost-12.5) > 1e-9 {
+		t.Errorf("no 1h: Calculate = %f, want 12.5", cost)
+	}
+}
+
+// More 1-hour tokens than cache writes cannot happen in a well-formed line;
+// the excess is clamped so the cost never exceeds the all-1-hour price.
+func TestCalculate_CacheWrite1hClampedToTotal(t *testing.T) {
+	cost := Calculate(0, 0, 1_000_000, 5_000_000, 0, "claude-fable-5-1", nil)
+	if math.Abs(cost-20.0) > 1e-9 {
+		t.Errorf("Calculate = %f, want 20.0 (clamped)", cost)
 	}
 }

@@ -296,3 +296,43 @@ func TestReport_JSONShape(t *testing.T) {
 		}
 	}
 }
+
+// Cache writes with the 1-hour TTL are reported on their own and priced at
+// the 1-hour rate; the total token count does not count them twice.
+func TestBuild_CacheWrite1hReportedAndPriced(t *testing.T) {
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	e := entry(now.Add(-time.Hour), "claude-fable-5-1", "s1", 0, 0, 1_000_000, 0)
+	e.CacheWrite1hTokens = 400_000
+	r := Build([]reader.UsageEntry{e}, period(now.Add(-24*time.Hour), now), now, "test", nil)
+
+	if r.Totals.Tokens.CacheWrite != 1_000_000 || r.Totals.Tokens.CacheWrite1h != 400_000 || r.Totals.Tokens.Total != 1_000_000 {
+		t.Errorf("tokens = %+v", r.Totals.Tokens)
+	}
+	// 600K * 12.5 + 400K * 20 per million = 15.5
+	if math.Abs(r.Totals.CostUSD-15.5) > 1e-9 || math.Abs(r.Models[0].CostUSD-15.5) > 1e-9 {
+		t.Errorf("cost = %f / %f, want 15.5", r.Totals.CostUSD, r.Models[0].CostUSD)
+	}
+	if math.Abs(r.Sessions.CostMedianUSD-15.5) > 1e-9 {
+		t.Errorf("session cost = %f, want 15.5", r.Sessions.CostMedianUSD)
+	}
+
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Totals struct {
+			Tokens map[string]int `json:"tokens"`
+		} `json:"totals"`
+		CostBasis string `json:"cost_basis"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Totals.Tokens["cache_write_1h"] != 400_000 {
+		t.Errorf("cache_write_1h = %d, want 400000", got.Totals.Tokens["cache_write_1h"])
+	}
+	if got.CostBasis != CostBasis {
+		t.Errorf("cost_basis = %q", got.CostBasis)
+	}
+}

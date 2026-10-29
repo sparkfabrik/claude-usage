@@ -23,15 +23,18 @@ import (
 const Schema = "claude-usage/report/1"
 
 // CostBasis states how every cost_usd in the document was computed.
-const CostBasis = "list prices, 5-minute cache-write rate"
+const CostBasis = "list prices, cache writes at their recorded TTL rate"
 
-// Tokens is a token count split by type.
+// Tokens is a token count split by type. CacheWrite1h is the part of
+// CacheWrite written with the 1-hour TTL, which costs more; the rest was
+// written with the 5-minute TTL. Total does not count it twice.
 type Tokens struct {
-	Input      int `json:"input"`
-	Output     int `json:"output"`
-	CacheWrite int `json:"cache_write"`
-	CacheRead  int `json:"cache_read"`
-	Total      int `json:"total"`
+	Input        int `json:"input"`
+	Output       int `json:"output"`
+	CacheWrite   int `json:"cache_write"`
+	CacheWrite1h int `json:"cache_write_1h"`
+	CacheRead    int `json:"cache_read"`
+	Total        int `json:"total"`
 }
 
 // Window is the period the report covers. From and To are RFC 3339 in UTC.
@@ -165,11 +168,12 @@ func pricingSource(overrides map[string]pricing.ModelPrice) string {
 
 func tokensOf(s *analyzer.Summary) Tokens {
 	return Tokens{
-		Input:      s.TotalInputTokens,
-		Output:     s.TotalOutputTokens,
-		CacheWrite: s.TotalCacheWriteTokens,
-		CacheRead:  s.TotalCacheReadTokens,
-		Total:      s.TotalTokens(),
+		Input:        s.TotalInputTokens,
+		Output:       s.TotalOutputTokens,
+		CacheWrite:   s.TotalCacheWriteTokens,
+		CacheWrite1h: s.TotalCacheWrite1hTokens,
+		CacheRead:    s.TotalCacheReadTokens,
+		Total:        s.TotalTokens(),
 	}
 }
 
@@ -191,7 +195,7 @@ func sessionCosts(entries []reader.UsageEntry, overrides map[string]pricing.Mode
 	for _, e := range entries {
 		bySession[e.SessionID] += pricing.Calculate(
 			e.InputTokens, e.OutputTokens,
-			e.CacheCreationTokens, e.CacheReadTokens,
+			e.CacheCreationTokens, e.CacheWrite1hTokens, e.CacheReadTokens,
 			e.Model, overrides,
 		)
 	}

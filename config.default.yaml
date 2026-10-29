@@ -38,9 +38,12 @@ cache:
   # path: /custom/path/quota.json
 
 # Override model pricing (per 1M tokens, USD)
+# cache_write is the 5-minute cache write rate, cache_write_1h the 1-hour one
+# (1.6x cache_write when omitted)
 # pricing:
 #   claude-opus-4:
 #     input: 15.00
 #     output: 75.00
 #     cache_write: 18.75
+#     cache_write_1h: 30.00
 #     cache_read: 1.50

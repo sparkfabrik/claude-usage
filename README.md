@@ -246,13 +246,14 @@ claude-usage --report 30d > usage-30d.json
     "timezone": "CET",
     "utc_offset": "+01:00"
   },
-  "cost_basis": "list prices, 5-minute cache-write rate",
+  "cost_basis": "list prices, cache writes at their recorded TTL rate",
   "pricing": "bundled",
   "totals": {
     "tokens": {
       "input": 193290,
       "output": 8342708,
       "cache_write": 56185967,
+      "cache_write_1h": 31206114,
       "cache_read": 3329432006,
       "total": 3394153971
     },
@@ -269,6 +270,7 @@ claude-usage --report 30d > usage-30d.json
         "input": 1,
         "output": 1,
         "cache_write": 1,
+        "cache_write_1h": 1,
         "cache_read": 1,
         "total": 4
       },
@@ -282,7 +284,7 @@ claude-usage --report 30d > usage-30d.json
 ```
 
 - `window` — the period is rolling from the moment the command runs, like `--period`; `from` and `to` are UTC. `active_days` counts local calendar days, like the dashboard, so `timezone` and `utc_offset` say which calendar was used.
-- `totals` and `models[]` — tokens by type, cost at list prices, number of requests (assistant messages) and, for the totals, sessions and active days. Models are listed heaviest first; `id` is the identifier found in the transcripts, `name` its display form.
+- `totals` and `models[]` — tokens by type, cost at list prices, number of requests (assistant messages) and, for the totals, sessions and active days. `cache_write_1h` is the part of `cache_write` written with the 1-hour cache, which costs more; `total` counts it once. Models are listed heaviest first; `id` is the identifier found in the transcripts, `name` its display form.
 - `sessions` — a session is a transcript file together with the subagent transcripts it spawned; `cost_median_usd` and `cost_p90_usd` are computed on the cost of each session (the p90 is the nearest-rank percentile). Both are `0` when the period has no sessions.
 - `priced` and `unpriced_models` — a model missing from the price table is costed with the fallback price (the Sonnet 4 rate) and flagged, so the figure is recognisable as a guess; add the model under `pricing:` in the config to price it, which sets `pricing` to `config`.
 - The document carries no project path, session id or other identifying field. The report covers what is still on disk: Claude Code keeps transcripts for `cleanupPeriodDays`, 30 by default.
@@ -347,7 +349,7 @@ cache:
 
 Cost values shown are **API-equivalent estimates** based on token counts and published pricing. If you're on a Claude subscription (Pro/Team/Enterprise), usage is included in your plan — the costs shown represent what the equivalent API usage would cost, not actual charges.
 
-Two simplifications apply to every estimate, in the dashboard and in `--report`: cache writes are priced at the 5-minute rate (1.25x input), while Claude Code uses the 1-hour cache (2x input) for the main conversation on a subscription, so those sessions are slightly under-estimated; and Haiku 5.5 is priced at its rate for prompts up to 100K tokens. The built-in table follows the [Anthropic pricing page](https://platform.claude.com/docs/en/about-claude/pricing); a model that is not in it is priced at the Sonnet 4 rate and reported as unpriced by `--report`.
+Cache writes are priced at the rate of the cache lifetime each request used: Claude Code records the split between 5-minute writes (1.25x input) and 1-hour writes (2x input) in every transcript line, and the main conversation on a subscription uses the 1-hour cache. One simplification applies to every estimate, in the dashboard and in `--report`: Haiku 5.5 is priced at its rate for prompts up to 100K tokens. The built-in table follows the [Anthropic pricing page](https://platform.claude.com/docs/en/about-claude/pricing); a model that is not in it is priced at the Sonnet 4 rate and reported as unpriced by `--report`. A pricing override in the config file may set `cache_write_1h`; when it is left out, it is 1.6x `cache_write`.
 
 ## License
 

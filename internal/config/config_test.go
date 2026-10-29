@@ -148,6 +148,7 @@ pricing:
     input: 5.0
     output: 20.0
     cache_write: 6.0
+    cache_write_1h: 9.6
     cache_read: 0.5
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -168,6 +169,9 @@ pricing:
 	}
 	if p.Output != 20.0 {
 		t.Errorf("Output = %f, want 20.0", p.Output)
+	}
+	if p.CacheWrite != 6.0 || p.CacheWrite1h != 9.6 || p.CacheRead != 0.5 {
+		t.Errorf("cache rates = %v/%v/%v, want 6.0/9.6/0.5", p.CacheWrite, p.CacheWrite1h, p.CacheRead)
 	}
 }
 

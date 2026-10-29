@@ -409,10 +409,11 @@ func TestBuildPricingOverrides_Populated(t *testing.T) {
 	cfg := &config.Config{
 		Pricing: map[string]config.ModelPricing{
 			"claude-sonnet-4": {
-				Input:      3.0,
-				Output:     15.0,
-				CacheWrite: 3.75,
-				CacheRead:  0.30,
+				Input:        3.0,
+				Output:       15.0,
+				CacheWrite:   3.75,
+				CacheWrite1h: 6.0,
+				CacheRead:    0.30,
 			},
 		},
 	}
@@ -430,10 +431,11 @@ func TestBuildPricingOverrides_Populated(t *testing.T) {
 		t.Fatal("expected claude-sonnet-4 in overrides")
 	}
 	want := pricing.ModelPrice{
-		Input:      3.0,
-		Output:     15.0,
-		CacheWrite: 3.75,
-		CacheRead:  0.30,
+		Input:        3.0,
+		Output:       15.0,
+		CacheWrite:   3.75,
+		CacheWrite1h: 6.0,
+		CacheRead:    0.30,
 	}
 	if mp != want {
 		t.Errorf("got %+v, want %+v", mp, want)

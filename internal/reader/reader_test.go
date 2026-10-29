@@ -606,4 +606,41 @@ func TestLoadEntries_TopLevelUsageWithIterations(t *testing.T) {
 	if e.InputTokens != 2 || e.OutputTokens != 269 || e.CacheCreationTokens != 26336 || e.CacheReadTokens != 29114 {
 		t.Errorf("tokens = %d/%d/%d/%d, want 2/269/26336/29114", e.InputTokens, e.OutputTokens, e.CacheCreationTokens, e.CacheReadTokens)
 	}
+	if e.CacheWrite1hTokens != 26336 {
+		t.Errorf("CacheWrite1hTokens = %d, want 26336 from cache_creation.ephemeral_1h_input_tokens", e.CacheWrite1hTokens)
+	}
+}
+
+// The cache_creation breakdown splits cache writes by TTL. A line without it
+// is read as all 5-minute writes; a breakdown larger than the total is
+// clamped to the total.
+func TestLoadEntries_CacheWrite1hBreakdown(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonl := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-08-25T10:00:01Z","uuid":"u2","requestId":"r2","message":{"id":"m2","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":300,"ephemeral_1h_input_tokens":700}}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-08-25T10:00:02Z","uuid":"u3","requestId":"r3","message":{"id":"m3","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":5000}}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "s.jsonl"), []byte(jsonl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("got %d entries, want 3", len(entries))
+	}
+	want := []int{0, 700, 1000}
+	for i, e := range entries {
+		if e.CacheCreationTokens != 1000 {
+			t.Errorf("entry %d: CacheCreationTokens = %d, want 1000", i, e.CacheCreationTokens)
+		}
+		if e.CacheWrite1hTokens != want[i] {
+			t.Errorf("entry %d: CacheWrite1hTokens = %d, want %d", i, e.CacheWrite1hTokens, want[i])
+		}
+	}
 }

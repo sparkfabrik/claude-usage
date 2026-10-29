@@ -30,7 +30,15 @@
 - [x] 5.2 AGENTS.md: the `--report` contract and the package tree.
 - [x] 5.3 This change: proposal, design, tasks and the `usage-report` spec.
 
-## 6. Verification
+## 6. Cache writes at their recorded rate
 
-- [x] 6.1 `go vet`, `go test ./...` (the pre-existing `internal/auth` Keychain test is environment-dependent on macOS), golangci-lint v2.14.0 clean.
-- [x] 6.2 On a machine with 30 days of transcripts, the report's token totals equal the dashboard's `30d` row.
+- [x] 6.1 Reader: `CacheWrite1hTokens` from `usage.cache_creation.ephemeral_1h_input_tokens`, clamped to the total, 0 without a breakdown.
+- [x] 6.2 Pricing: `CacheWrite1h` on every row, `Calculate` taking the 1-hour count, overrides deriving 1.6x `cache_write` when the rate is left out; `cache_write_1h` in `config.ModelPricing` and `config.default.yaml`.
+- [x] 6.3 Analyzer and report: `TotalCacheWrite1hTokens`, `tokens.cache_write_1h`, new `cost_basis`.
+- [x] 6.4 Tests: breakdown read, absent and clamped; every row at 2x input; override derivation; cost at both rates in pricing, analyzer and report; config key.
+- [x] 6.5 README: cost note, report example and field list.
+
+## 7. Verification
+
+- [x] 7.1 `go vet`, `go test ./...` (the pre-existing `internal/auth` Keychain test is environment-dependent on macOS), golangci-lint v2.14.0 clean.
+- [x] 7.2 On a machine with 30 days of transcripts, the report's token totals equal the dashboard's `30d` row.

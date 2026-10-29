@@ -21,7 +21,11 @@ type UsageEntry struct {
 	InputTokens         int
 	OutputTokens        int
 	CacheCreationTokens int
-	CacheReadTokens     int
+	// CacheWrite1hTokens is the part of CacheCreationTokens written with the
+	// 1-hour TTL, from usage.cache_creation.ephemeral_1h_input_tokens; 0 when
+	// the transcript carries no breakdown.
+	CacheWrite1hTokens int
+	CacheReadTokens    int
 	// MessageID is the assistant message id from message.id. It is stable
 	// across resumed and forked sessions, where the same message reappears
 	// under a new uuid.
@@ -116,6 +120,9 @@ type jsonlRecord struct {
 			OutputTokens             int `json:"output_tokens"`
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreation            struct {
+				Ephemeral1h int `json:"ephemeral_1h_input_tokens"`
+			} `json:"cache_creation"`
 		} `json:"usage"`
 	} `json:"message"`
 }
@@ -173,12 +180,23 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 			session = sessionID
 		}
 
+		// The TTL breakdown never exceeds the total it splits; clamp so a
+		// malformed line cannot price more 1-hour tokens than were written.
+		write1h := usage.CacheCreation.Ephemeral1h
+		if write1h > usage.CacheCreationInputTokens {
+			write1h = usage.CacheCreationInputTokens
+		}
+		if write1h < 0 {
+			write1h = 0
+		}
+
 		entry := UsageEntry{
 			Timestamp:           ts,
 			Model:               rec.Message.Model,
 			InputTokens:         usage.InputTokens,
 			OutputTokens:        usage.OutputTokens,
 			CacheCreationTokens: usage.CacheCreationInputTokens,
+			CacheWrite1hTokens:  write1h,
 			CacheReadTokens:     usage.CacheReadInputTokens,
 			MessageID:           rec.Message.ID,
 			EntryUUID:           rec.UUID,

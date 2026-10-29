@@ -15,13 +15,16 @@ type Summary struct {
 	TotalInputTokens      int
 	TotalOutputTokens     int
 	TotalCacheWriteTokens int
-	TotalCacheReadTokens  int
-	TotalCostUSD          float64
-	MessageCount          int
-	SessionCount          int
-	ModelsUsed            map[string]int
-	StartTime             *time.Time
-	EndTime               *time.Time
+	// TotalCacheWrite1hTokens is the part of TotalCacheWriteTokens written
+	// with the 1-hour TTL.
+	TotalCacheWrite1hTokens int
+	TotalCacheReadTokens    int
+	TotalCostUSD            float64
+	MessageCount            int
+	SessionCount            int
+	ModelsUsed              map[string]int
+	StartTime               *time.Time
+	EndTime                 *time.Time
 }
 
 // TotalTokens returns the sum of all token types.
@@ -57,12 +60,13 @@ func Aggregate(entries []reader.UsageEntry, label string, overrides map[string]p
 		s.TotalInputTokens += e.InputTokens
 		s.TotalOutputTokens += e.OutputTokens
 		s.TotalCacheWriteTokens += e.CacheCreationTokens
+		s.TotalCacheWrite1hTokens += e.CacheWrite1hTokens
 		s.TotalCacheReadTokens += e.CacheReadTokens
 		s.ModelsUsed[e.Model]++
 		sessions[e.SessionID] = struct{}{}
 		s.TotalCostUSD += pricing.Calculate(
 			e.InputTokens, e.OutputTokens,
-			e.CacheCreationTokens, e.CacheReadTokens,
+			e.CacheCreationTokens, e.CacheWrite1hTokens, e.CacheReadTokens,
 			e.Model, overrides,
 		)
 		if minTime.IsZero() || e.Timestamp.Before(minTime) {
