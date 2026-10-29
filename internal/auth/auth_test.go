@@ -1,11 +1,25 @@
 package auth
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+// stubKeychain makes Load see the given Keychain content instead of the
+// developer's real one, and restores the lookup when the test ends. A nil
+// data with a nil error is "no item", which is what every non-macOS build
+// and every Mac without a Claude Code login report.
+func stubKeychain(t *testing.T, data []byte, err error) {
+	t.Helper()
+	prev := keychainReader
+	keychainReader = func() ([]byte, error) { return data, err }
+	t.Cleanup(func() { keychainReader = prev })
+}
 
 func TestIsExpired_ZeroValue(t *testing.T) {
 	c := &Credentials{ExpiresAt: 0}
@@ -64,7 +78,7 @@ func TestParseCredentials_Nested(t *testing.T) {
 		t.Fatal("expected non-nil credentials")
 	}
 	if creds.AccessToken != "tok123" {
-		t.Errorf("AccessToken = %q, want tok123", creds.AccessToken)
+		t.Error("AccessToken is not the one in the fixture (tok123)")
 	}
 	if creds.RefreshToken != "ref456" {
 		t.Errorf("RefreshToken = %q, want ref456", creds.RefreshToken)
@@ -81,7 +95,7 @@ func TestParseCredentials_TopLevel(t *testing.T) {
 		t.Fatal("expected non-nil credentials")
 	}
 	if creds.AccessToken != "tok789" {
-		t.Errorf("AccessToken = %q, want tok789", creds.AccessToken)
+		t.Error("AccessToken is not the one in the fixture (tok789)")
 	}
 }
 
@@ -92,7 +106,7 @@ func TestParseCredentials_NoAccessToken(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if creds != nil {
-		t.Errorf("expected nil for no accessToken, got %+v", creds)
+		t.Errorf("expected nil for no accessToken, got %v", creds)
 	}
 }
 
@@ -127,17 +141,19 @@ func TestParseCredentials_NestedBadInnerJSON(t *testing.T) {
 }
 
 func TestLoad_MissingFile(t *testing.T) {
+	stubKeychain(t, nil, nil)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	creds, err := Load()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if creds != nil {
-		t.Errorf("expected nil for missing file, got %+v", creds)
+		t.Errorf("expected nil for missing file, got %v", creds)
 	}
 }
 
 func TestLoad_ValidFile(t *testing.T) {
+	stubKeychain(t, nil, nil)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 
@@ -154,11 +170,12 @@ func TestLoad_ValidFile(t *testing.T) {
 		t.Fatal("expected non-nil credentials")
 	}
 	if creds.AccessToken != "file-tok" {
-		t.Errorf("AccessToken = %q, want file-tok", creds.AccessToken)
+		t.Error("AccessToken is not the one in the file (file-tok)")
 	}
 }
 
 func TestLoad_MalformedFile(t *testing.T) {
+	stubKeychain(t, nil, nil)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 
@@ -173,6 +190,7 @@ func TestLoad_MalformedFile(t *testing.T) {
 }
 
 func TestLoad_FileWithNoAccessToken(t *testing.T) {
+	stubKeychain(t, nil, nil)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 
@@ -186,6 +204,68 @@ func TestLoad_FileWithNoAccessToken(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if creds != nil {
-		t.Errorf("expected nil for no accessToken, got %+v", creds)
+		t.Errorf("expected nil for no accessToken, got %v", creds)
+	}
+}
+
+// The Keychain wins over the file when it holds credentials.
+func TestLoad_KeychainWins(t *testing.T) {
+	stubKeychain(t, []byte(`{"claudeAiOauth":{"accessToken":"kc-tok","expiresAt":9999999999999}}`), nil)
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	data := []byte(`{"claudeAiOauth":{"accessToken":"file-tok","expiresAt":9999999999999}}`)
+	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), data, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	creds, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if creds == nil || creds.AccessToken != "kc-tok" {
+		t.Error("expected the Keychain credentials (kc-tok)")
+	}
+}
+
+// Keychain content that does not parse is ignored and the file is read.
+func TestLoad_KeychainUnparsableFallsBackToFile(t *testing.T) {
+	stubKeychain(t, []byte("not json"), nil)
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	data := []byte(`{"claudeAiOauth":{"accessToken":"file-tok","expiresAt":9999999999999}}`)
+	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), data, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	creds, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if creds == nil || creds.AccessToken != "file-tok" {
+		t.Error("expected the file credentials (file-tok)")
+	}
+}
+
+// A Keychain error is returned as is, before the file is tried.
+func TestLoad_KeychainError(t *testing.T) {
+	want := errors.New("keychain locked")
+	stubKeychain(t, nil, want)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := Load(); !errors.Is(err, want) {
+		t.Errorf("err = %v, want %v", err, want)
+	}
+}
+
+// Printing credentials with %v or %+v, by value or by pointer, must never
+// show a token.
+func TestCredentials_StringRedacts(t *testing.T) {
+	c := &Credentials{AccessToken: "sk-ant-oat01-SECRET", RefreshToken: "sk-ant-ort01-SECRET", ExpiresAt: 42, SubscriptionType: "team", RateLimitTier: "max_5x"}
+	for _, s := range []string{fmt.Sprintf("%v", c), fmt.Sprintf("%+v", c), fmt.Sprintf("%v", *c), fmt.Sprintf("%+v", *c), c.String()} {
+		if strings.Contains(s, "SECRET") {
+			t.Errorf("token leaked: %s", s)
+		}
+		if !strings.Contains(s, "redacted") || !strings.Contains(s, "team") || !strings.Contains(s, "42") {
+			t.Errorf("redacted form should keep the non-secret fields: %s", s)
+		}
 	}
 }

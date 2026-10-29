@@ -18,6 +18,13 @@ type Credentials struct {
 	RateLimitTier    string `json:"rateLimitTier"`
 }
 
+// String describes the credentials without their secrets, so a %v or %+v in
+// a log, an error or a test failure never prints a token.
+func (c Credentials) String() string {
+	return fmt.Sprintf("Credentials{AccessToken:<redacted %d bytes> RefreshToken:<redacted %d bytes> ExpiresAt:%d SubscriptionType:%q RateLimitTier:%q}",
+		len(c.AccessToken), len(c.RefreshToken), c.ExpiresAt, c.SubscriptionType, c.RateLimitTier)
+}
+
 // IsExpired returns true if the access token has expired.
 func (c *Credentials) IsExpired() bool {
 	if c.ExpiresAt == 0 {
@@ -70,12 +77,17 @@ func parseCredentials(data []byte) (*Credentials, error) {
 	return &creds, nil
 }
 
+// keychainReader is the Keychain lookup Load uses: readKeychain, which the
+// darwin build implements and the others stub out. It is a variable so tests
+// can run Load without touching the developer's real Keychain.
+var keychainReader = readKeychain
+
 // Load reads OAuth credentials. On macOS it tries the Keychain first, then
 // falls back to the credentials file. On other platforms only the file is read.
 // Returns nil if not found.
 func Load() (*Credentials, error) {
 	// Try macOS Keychain first (no-op on other platforms)
-	if data, err := readKeychain(); err != nil {
+	if data, err := keychainReader(); err != nil {
 		return nil, err
 	} else if data != nil {
 		if creds, err := parseCredentials(data); err == nil && creds != nil {
