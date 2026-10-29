@@ -285,3 +285,78 @@ func TestCalculate_CacheWrite1hClampedToTotal(t *testing.T) {
 		t.Errorf("Calculate = %f, want 20.0 (clamped)", cost)
 	}
 }
+
+// Haiku 5.5 is the only model with a long-prompt tier; every other row is
+// one flat rate across its context window.
+func TestDefaultPricing_OnlyHaiku55HasTier(t *testing.T) {
+	for model, p := range DefaultPricing {
+		if model == "claude-haiku-5-5" {
+			if p.LongPrompt == nil || p.LongPrompt.Threshold != 100_000 {
+				t.Errorf("%s: want a 100K tier, got %+v", model, p.LongPrompt)
+			}
+			continue
+		}
+		if p.LongPrompt != nil {
+			t.Errorf("%s: unexpected long-prompt tier", model)
+		}
+	}
+	over := Get("claude-haiku-5-5", nil).LongPrompt.Price
+	want := ModelPrice{Input: 0.50, Output: 2.50, CacheWrite: 0.625, CacheWrite1h: 1.0, CacheRead: 0.05}
+	if over != want {
+		t.Errorf("tier price = %+v, want %+v", over, want)
+	}
+	if Get("claude-haiku-5-5-20260301", nil).LongPrompt == nil {
+		t.Error("a date variant resolves to the row with the tier")
+	}
+}
+
+// The prompt is every input token of the request, cache reads and writes
+// included; at the threshold the base rates apply, one token over the tier
+// rates apply to everything, output included.
+func TestCalculate_Haiku55PromptTier(t *testing.T) {
+	const m = "claude-haiku-5-5"
+	// 100,000 exactly: base rates. 50K input + 30K write + 20K read + 1K out
+	// = 50K*0.10 + 30K*0.125 + 20K*0.01 + 1K*0.50 per million = 0.009450
+	if got, want := Calculate(50_000, 1_000, 30_000, 0, 20_000, m, nil), 0.00945; math.Abs(got-want) > 1e-12 {
+		t.Errorf("at threshold: %f, want %f", got, want)
+	}
+	// One cache-read token more: everything at 5x = 0.047255 (20,001 reads).
+	if got, want := Calculate(50_000, 1_000, 30_000, 0, 20_001, m, nil), 0.047250+0.00000005; math.Abs(got-want) > 1e-12 {
+		t.Errorf("over threshold: %f, want %f", got, want)
+	}
+	// Input alone over the threshold, 1-hour writes at the tier's 1-hour rate:
+	// 100,001 in * 0.50 + 1M 1h writes * 1.0 = 0.0500005 + 1.0
+	if got, want := Calculate(100_001, 0, 1_000_000, 1_000_000, 0, m, nil), 1.0500005; math.Abs(got-want) > 1e-12 {
+		t.Errorf("input over threshold with 1h writes: %f, want %f", got, want)
+	}
+	// Flat models ignore prompt length: Fable at 900K input is still $10/M.
+	if got, want := Calculate(900_000, 0, 0, 0, 0, "claude-fable-5-1", nil), 9.0; math.Abs(got-want) > 1e-9 {
+		t.Errorf("flat model: %f, want %f", got, want)
+	}
+}
+
+// An override without a tier has one flat rate even for Haiku 5.5; an
+// override with a tier uses it, deriving its 1-hour rate like the base one.
+func TestGet_OverrideTier(t *testing.T) {
+	flat := map[string]ModelPrice{"claude-haiku-5-5": {Input: 1, Output: 1, CacheWrite: 1, CacheRead: 1}}
+	if Get("claude-haiku-5-5", flat).LongPrompt != nil {
+		t.Error("override without a tier should have none")
+	}
+	if got := Calculate(200_000, 0, 0, 0, 0, "claude-haiku-5-5", flat); math.Abs(got-0.2) > 1e-12 {
+		t.Errorf("flat override over 100K: %f, want 0.2", got)
+	}
+	withTier := map[string]ModelPrice{"m": {
+		Input: 1, Output: 1, CacheWrite: 1, CacheRead: 1,
+		LongPrompt: &PromptTier{Threshold: 10, Price: ModelPrice{Input: 5, Output: 5, CacheWrite: 5, CacheRead: 5}},
+	}}
+	p := Get("m", withTier)
+	if p.LongPrompt == nil || math.Abs(p.LongPrompt.Price.CacheWrite1h-8.0) > 1e-9 {
+		t.Errorf("tier CacheWrite1h should derive to 8.0, got %+v", p.LongPrompt)
+	}
+	if withTier["m"].LongPrompt.Price.CacheWrite1h != 0 {
+		t.Error("Get must not mutate the caller's override")
+	}
+	if got := Calculate(11, 0, 0, 0, 0, "m", withTier); math.Abs(got-11*5/1e6) > 1e-15 {
+		t.Errorf("tier override: %g, want %g", got, 11*5/1e6)
+	}
+}

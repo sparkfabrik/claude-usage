@@ -620,13 +620,26 @@ func buildPricingOverrides(cfg *config.Config) map[string]pricing.ModelPrice {
 	}
 	overrides := make(map[string]pricing.ModelPrice, len(cfg.Pricing))
 	for model, p := range cfg.Pricing {
-		overrides[model] = pricing.ModelPrice{
+		mp := pricing.ModelPrice{
 			Input:        p.Input,
 			Output:       p.Output,
 			CacheWrite:   p.CacheWrite,
 			CacheWrite1h: p.CacheWrite1h,
 			CacheRead:    p.CacheRead,
 		}
+		if lp := p.LongPrompt; lp != nil {
+			mp.LongPrompt = &pricing.PromptTier{
+				Threshold: lp.Threshold,
+				Price: pricing.ModelPrice{
+					Input:        lp.Input,
+					Output:       lp.Output,
+					CacheWrite:   lp.CacheWrite,
+					CacheWrite1h: lp.CacheWrite1h,
+					CacheRead:    lp.CacheRead,
+				},
+			}
+		}
+		overrides[model] = mp
 	}
 	return overrides
 }

@@ -42,8 +42,22 @@ type Colors struct {
 
 // ModelPricing is one model's prices per 1M tokens, USD. CacheWrite is the
 // 5-minute cache write rate; CacheWrite1h the 1-hour one, derived as 1.6x
-// CacheWrite when left out.
+// CacheWrite when left out. LongPrompt, optional, is a second set of rates
+// for a request whose prompt is over its threshold; an override without it
+// has one flat rate even when the built-in table has a tier for the model.
 type ModelPricing struct {
+	Input        float64            `yaml:"input"`
+	Output       float64            `yaml:"output"`
+	CacheWrite   float64            `yaml:"cache_write"`
+	CacheWrite1h float64            `yaml:"cache_write_1h"`
+	CacheRead    float64            `yaml:"cache_read"`
+	LongPrompt   *LongPromptPricing `yaml:"long_prompt,omitempty"`
+}
+
+// LongPromptPricing is the rate set a request pays when its prompt, every
+// input token including cache reads and writes, is over Threshold tokens.
+type LongPromptPricing struct {
+	Threshold    int     `yaml:"threshold"`
 	Input        float64 `yaml:"input"`
 	Output       float64 `yaml:"output"`
 	CacheWrite   float64 `yaml:"cache_write"`

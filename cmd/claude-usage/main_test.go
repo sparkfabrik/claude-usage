@@ -1837,3 +1837,22 @@ func TestRunReport_AggregatesTranscripts(t *testing.T) {
 		t.Errorf("report must not contain project or session identifiers:\n%s", buf.String())
 	}
 }
+
+func TestBuildPricingOverrides_LongPrompt(t *testing.T) {
+	cfg := &config.Config{
+		Pricing: map[string]config.ModelPricing{
+			"claude-haiku-5-5": {
+				Input: 0.1, Output: 0.5, CacheWrite: 0.125, CacheRead: 0.01,
+				LongPrompt: &config.LongPromptPricing{Threshold: 100000, Input: 0.5, Output: 2.5, CacheWrite: 0.625, CacheWrite1h: 1.0, CacheRead: 0.05},
+			},
+		},
+	}
+	got := buildPricingOverrides(cfg)["claude-haiku-5-5"]
+	if got.LongPrompt == nil {
+		t.Fatal("long_prompt should be mapped")
+	}
+	wantTier := pricing.ModelPrice{Input: 0.5, Output: 2.5, CacheWrite: 0.625, CacheWrite1h: 1.0, CacheRead: 0.05}
+	if got.LongPrompt.Threshold != 100000 || got.LongPrompt.Price != wantTier {
+		t.Errorf("tier = %+v, want threshold 100000 and %+v", got.LongPrompt, wantTier)
+	}
+}

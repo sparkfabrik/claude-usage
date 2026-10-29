@@ -38,7 +38,14 @@
 - [x] 6.4 Tests: breakdown read, absent and clamped; every row at 2x input; override derivation; cost at both rates in pricing, analyzer and report; config key.
 - [x] 6.5 README: cost note, report example and field list.
 
-## 7. Verification
+## 7. Haiku 5.5 prompt-length tier
 
-- [x] 7.1 `go vet`, `go test ./...` (the pre-existing `internal/auth` Keychain test is environment-dependent on macOS), golangci-lint v2.14.0 clean.
-- [x] 7.2 On a machine with 30 days of transcripts, the report's token totals equal the dashboard's `30d` row.
+- [x] 7.1 Pricing: `PromptTier` on `ModelPrice`, the Haiku 5.5 row with its over-100K rates, `Calculate` switching to the tier when the request's prompt is over the threshold.
+- [x] 7.2 Config: optional `long_prompt` block on an override, mapped in `buildPricingOverrides`; `config.default.yaml` example.
+- [x] 7.3 Tests: at and over the threshold, cache reads counted toward it, output at the tier rate, no tier on any other row, override with and without the block, config parse.
+- [x] 7.4 README cost note.
+
+## 8. Verification
+
+- [x] 8.1 `go vet`, `go test ./...` (the pre-existing `internal/auth` Keychain test is environment-dependent on macOS), golangci-lint v2.14.0 clean.
+- [x] 8.2 On a machine with 30 days of transcripts, the report's token totals equal the dashboard's `30d` row.

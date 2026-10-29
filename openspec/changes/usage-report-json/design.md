@@ -30,13 +30,17 @@ Newer transcripts add `usage.iterations`, a per-iteration list next to the top-l
 
 ### Pricing: list prices, cache writes at their recorded rate, flagged unknowns
 
-The table gains the Claude 5 generation from the Anthropic pricing page, read on 2026-10-28, with the longest prefixes first so `claude-opus-5-5` resolves before `claude-opus-5`. One simplification stays and is documented: Haiku 5.5 is priced at its rate for prompts up to 100K tokens. The fallback for an unknown model stays the Sonnet 4 rate, as the dashboard shows; the report adds `priced: false` on the model row and lists the id in `unpriced_models`, so the guess is visible. `pricing` says `bundled` or `config` depending on whether overrides were loaded, and `cost_basis` states the rule in words.
+The table gains the Claude 5 generation from the Anthropic pricing page, read on 2026-10-28, with the longest prefixes first so `claude-opus-5-5` resolves before `claude-opus-5`. The fallback for an unknown model stays the Sonnet 4 rate, as the dashboard shows; the report adds `priced: false` on the model row and lists the id in `unpriced_models`, so the guess is visible. `pricing` says `bundled` or `config` depending on whether overrides were loaded, and `cost_basis` states the rule in words.
 
 ### Cache writes: two rates, read from the transcript
 
 A cache write costs 1.25x input with the 5-minute TTL and 2x input with the 1-hour one. Claude Code requests the 1-hour TTL for the main conversation on a subscription within plan usage, and the 5-minute one for subagents and everything else, and records the split of every request in `usage.cache_creation.ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens`. Checked on a working machine, deduplicated: the two always sum to `cache_creation_input_tokens`, no line lacks the breakdown, and 56% of the cache-write tokens were 1-hour ones, so pricing everything at the 5-minute rate left the 30-day estimate 10% low.
 
 The reader keeps the 1-hour count on the entry (`CacheWrite1hTokens`, clamped to the total, 0 when the breakdown is absent). `ModelPrice` gains `CacheWrite1h`, set from the pricing page on every row; `Calculate` takes the 1-hour count and prices the remainder at the 5-minute rate. A config override may set `cache_write_1h`; when left out it is derived as 1.6x `cache_write`, the ratio of 2x to 1.25x that every row of the pricing page follows, so existing configs keep working. The report adds `cache_write_1h` under `tokens`, a part of `cache_write` and not added to `total`, and `cost_basis` becomes "list prices, cache writes at their recorded TTL rate". The dashboard shows no new column; its cost simply becomes right.
+
+### Haiku 5.5: priced by prompt length
+
+The pricing page bills every Claude 4.6+ model at one rate across its context window, except Haiku 5.5, which has a second row for a request whose prompt is over 100K tokens: 5x on input, output, cache writes and cache reads. The prompt length is every input token of the request, cache reads and writes included, and each request is priced on its own. The transcript carries exactly those counts per request, so the rule is applied exactly: `ModelPrice` gains an optional `LongPrompt` tier (threshold and a second rate set), the Haiku 5.5 row is the only one that sets it, and `Calculate`, which already runs once per request, switches to the tier rates when `input + cache writes + cache reads` is over the threshold. A config override may carry a `long_prompt` block; an override without it has one flat rate, so a user's prices are never mixed with the built-in tier.
 
 ### Percentiles
 
