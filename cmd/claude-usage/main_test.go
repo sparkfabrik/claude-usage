@@ -1730,3 +1730,108 @@ func TestPrintConfigFooter_DefaultsNoReference(t *testing.T) {
 		t.Errorf("did not expect Reference file line, got:\n%s", out)
 	}
 }
+
+// --- --report ---
+
+func TestReportConflict(t *testing.T) {
+	changed := func(set ...string) func(string) bool {
+		return func(name string) bool { return slices.Contains(set, name) }
+	}
+	if got := reportConflict(changed()); got != "" {
+		t.Errorf("no flags: got %q, want empty", got)
+	}
+	if got := reportConflict(changed("no-poll", "config")); got != "" {
+		t.Errorf("harmless flags: got %q, want empty", got)
+	}
+	for _, name := range []string{"status", "poll-only", "period", "force-poll", "no-cost"} {
+		if got := reportConflict(changed(name)); got != name {
+			t.Errorf("flag %s: got %q, want %q", name, got, name)
+		}
+	}
+}
+
+func TestRunReport_UnknownPeriod(t *testing.T) {
+	var buf bytes.Buffer
+	err := runReport(&buf, config.Default(), t.TempDir(), "2w")
+	if err == nil || !strings.Contains(err.Error(), "unknown period") {
+		t.Fatalf("expected unknown period error, got %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("nothing should be written on error, got %q", buf.String())
+	}
+}
+
+func TestRunReport_EmptyProjects(t *testing.T) {
+	var buf bytes.Buffer
+	if err := runReport(&buf, config.Default(), t.TempDir(), "30d"); err != nil {
+		t.Fatalf("runReport: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, buf.String())
+	}
+	if got["schema"] != "claude-usage/report/1" {
+		t.Errorf("schema = %v", got["schema"])
+	}
+	totals := got["totals"].(map[string]any)
+	if totals["active_days"].(float64) != 0 || totals["sessions"].(float64) != 0 {
+		t.Errorf("empty projects should give zeros, got %v", totals)
+	}
+	if !strings.HasSuffix(buf.String(), "\n") {
+		t.Error("output should end with a newline")
+	}
+}
+
+func TestRunReport_AggregatesTranscripts(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	jsonl := fmt.Sprintf(
+		`{"type":"assistant","timestamp":"%s","uuid":"u1","requestId":"r1","sessionId":"s1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":1000,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"%s","uuid":"u2","requestId":"r2","sessionId":"s2","message":{"id":"m2","model":"claude-opus-5-5","usage":{"input_tokens":3000,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+`, now.Add(-2*time.Hour).Format(time.RFC3339Nano), now.Add(-time.Hour).Format(time.RFC3339Nano))
+	if err := os.WriteFile(filepath.Join(projectDir, "s1.jsonl"), []byte(jsonl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runReport(&buf, config.Default(), dir, "7d"); err != nil {
+		t.Fatalf("runReport: %v", err)
+	}
+	var got struct {
+		Window struct{ Label string } `json:"window"`
+		Totals struct {
+			Tokens   struct{ Input, Output, Total int }
+			Sessions int
+			Requests int
+		} `json:"totals"`
+		Models []struct {
+			ID     string `json:"id"`
+			Priced bool   `json:"priced"`
+		} `json:"models"`
+		Sessions struct {
+			Count int
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, buf.String())
+	}
+	if got.Window.Label != "7d" {
+		t.Errorf("window label = %q, want 7d", got.Window.Label)
+	}
+	if got.Totals.Tokens.Input != 4000 || got.Totals.Tokens.Output != 200 || got.Totals.Tokens.Total != 4200 {
+		t.Errorf("totals = %+v", got.Totals.Tokens)
+	}
+	if got.Totals.Sessions != 2 || got.Sessions.Count != 2 || got.Totals.Requests != 2 {
+		t.Errorf("sessions/requests = %+v / %+v", got.Totals, got.Sessions)
+	}
+	if len(got.Models) != 1 || got.Models[0].ID != "claude-opus-5-5" || !got.Models[0].Priced {
+		t.Errorf("models = %+v", got.Models)
+	}
+	if strings.Contains(buf.String(), "proj") || strings.Contains(buf.String(), "s1") {
+		t.Errorf("report must not contain project or session identifiers:\n%s", buf.String())
+	}
+}

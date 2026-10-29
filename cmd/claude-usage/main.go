@@ -22,6 +22,7 @@ import (
 	"github.com/sparkfabrik/claude-usage/internal/pricing"
 	"github.com/sparkfabrik/claude-usage/internal/process"
 	"github.com/sparkfabrik/claude-usage/internal/reader"
+	"github.com/sparkfabrik/claude-usage/internal/report"
 	"github.com/sparkfabrik/claude-usage/internal/stats"
 	"github.com/sparkfabrik/claude-usage/internal/usage"
 )
@@ -171,6 +172,7 @@ func main() {
 	configPath := flag.StringP("config", "c", "", "Path to config file (overrides the default search chain)")
 	pollOnly := flag.Bool("poll-only", false, "Poll API and update cache, no output (for scripting)")
 	status := flag.Bool("status", false, "Output JSON status for GNOME extension or other consumers")
+	reportPeriod := flag.String("report", "", "Print a JSON usage report for a period (today, 7d, 30d, all) and exit; reads local transcripts only, no API calls")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -194,6 +196,20 @@ func main() {
 	}
 
 	cfg := config.Load(*configPath)
+
+	// --report reads transcripts and the price table, nothing else: no
+	// credentials, no cache, no network. It is checked before auth.Load().
+	if *reportPeriod != "" {
+		if other := reportConflict(flag.CommandLine.Changed); other != "" {
+			fmt.Fprintf(os.Stderr, "Error: --report cannot be combined with --%s\n", other)
+			os.Exit(1)
+		}
+		if err := runReport(os.Stdout, cfg, "", *reportPeriod); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	cachePath, err := resolveCachePath(cfg)
 	if err != nil {
@@ -231,6 +247,36 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// reportConflict returns the name of the first flag that selects another
+// mode or only makes sense in the dashboard, when it was set alongside
+// --report; an empty string means --report may run. changed reports whether a
+// flag was given on the command line.
+func reportConflict(changed func(string) bool) string {
+	for _, name := range []string{"status", "poll-only", "period", "force-poll", "no-cost"} {
+		if changed(name) {
+			return name
+		}
+	}
+	return ""
+}
+
+// runReport prints the JSON usage report for one period. It walks the
+// transcripts on every run instead of reading the stats cache: the report is
+// a one-off command and must reflect what is on disk now.
+func runReport(w io.Writer, cfg *config.Config, projectsPath, periodLabel string) error {
+	p, ok := analyzer.FindPeriod(periodLabel)
+	if !ok {
+		return fmt.Errorf("unknown period %q (valid: today, 7d, 30d, all)", periodLabel)
+	}
+	entries, err := reader.LoadEntries(projectsPath, nil, nil)
+	if err != nil {
+		return fmt.Errorf("loading usage data: %w", err)
+	}
+	initVersion()
+	r := report.Build(entries, p, time.Now(), version, buildPricingOverrides(cfg))
+	return outputJSON(w, r)
 }
 
 // resolveCachePath returns the cache file path from config override or XDG default.
