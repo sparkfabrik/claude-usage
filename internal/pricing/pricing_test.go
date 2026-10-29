@@ -170,3 +170,64 @@ func TestDefaultPricing_AllModelsPresent(t *testing.T) {
 		}
 	}
 }
+
+func TestGet_Claude5Generation(t *testing.T) {
+	tests := []struct {
+		model                 string
+		input, output, cw, cr float64
+	}{
+		{"claude-fable-5-1", 10.0, 50.0, 12.5, 0.25},
+		{"claude-fable-5-1-20260901", 10.0, 50.0, 12.5, 0.25},
+		{"claude-mythos-5-1", 10.0, 50.0, 12.5, 0.25},
+		{"claude-fable-5", 10.0, 50.0, 12.5, 1.0},
+		{"claude-opus-5-5", 4.0, 20.0, 5.0, 0.20},
+		{"claude-opus-5-5-20260701", 4.0, 20.0, 5.0, 0.20},
+		{"claude-opus-5", 5.0, 25.0, 6.25, 0.50},
+		{"claude-sonnet-5-5", 2.0, 10.0, 2.5, 0.10},
+		{"claude-sonnet-5", 2.0, 10.0, 2.5, 0.20},
+		{"claude-haiku-5-5", 0.10, 0.50, 0.125, 0.01},
+		{"claude-haiku-5-5-20260301", 0.10, 0.50, 0.125, 0.01},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			p := Get(tt.model, nil)
+			if p.Input != tt.input || p.Output != tt.output || p.CacheWrite != tt.cw || p.CacheRead != tt.cr {
+				t.Errorf("Get(%q) = %+v, want %v/%v/%v/%v", tt.model, p, tt.input, tt.output, tt.cw, tt.cr)
+			}
+		})
+	}
+}
+
+// The longer prefix must win: claude-opus-5-5 is not priced as claude-opus-5.
+func TestGet_LongerPrefixWins(t *testing.T) {
+	if p := Get("claude-opus-5-5-20260701", nil); p.Input != 4.0 {
+		t.Errorf("opus 5.5 variant priced at %f, want 4.0", p.Input)
+	}
+	if p := Get("claude-fable-5-1-x", nil); p.CacheRead != 0.25 {
+		t.Errorf("fable 5.1 variant cache read %f, want 0.25", p.CacheRead)
+	}
+}
+
+func TestKnown(t *testing.T) {
+	if !Known("claude-opus-5-5", nil) {
+		t.Error("exact row should be known")
+	}
+	if !Known("claude-opus-5-5-20260701", nil) {
+		t.Error("prefix match should be known")
+	}
+	if Known("completely-unknown-model", nil) {
+		t.Error("unknown model should not be known")
+	}
+	overrides := map[string]ModelPrice{"completely-unknown-model": {Input: 1}}
+	if !Known("completely-unknown-model", overrides) {
+		t.Error("overridden model should be known")
+	}
+}
+
+func TestCalculate_Fable51(t *testing.T) {
+	cost := Calculate(1_000_000, 100_000, 200_000, 4_000_000, "claude-fable-5-1", nil)
+	// 10 + 5 + 2.5 + 1.0 = 18.5
+	if math.Abs(cost-18.5) > 0.0001 {
+		t.Errorf("Calculate = %f, want 18.5", cost)
+	}
+}
