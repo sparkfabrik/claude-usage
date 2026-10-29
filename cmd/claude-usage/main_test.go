@@ -1765,7 +1765,7 @@ func TestRunReport_UnknownPeriod(t *testing.T) {
 
 func TestRunReport_EmptyProjects(t *testing.T) {
 	var buf bytes.Buffer
-	if err := runReport(&buf, config.Default(), t.TempDir(), "30d"); err != nil {
+	if err := runReport(&buf, config.Default(), t.TempDir(), "all"); err != nil {
 		t.Fatalf("runReport: %v", err)
 	}
 	var got map[string]any
@@ -1778,6 +1778,10 @@ func TestRunReport_EmptyProjects(t *testing.T) {
 	totals := got["totals"].(map[string]any)
 	if totals["active_days"].(float64) != 0 || totals["sessions"].(float64) != 0 {
 		t.Errorf("empty projects should give zeros, got %v", totals)
+	}
+	window := got["window"].(map[string]any)
+	if _, ok := window["from"]; ok || window["label"] != "all" {
+		t.Errorf("all with no transcripts should have no window.from, got %v", window)
 	}
 	if !strings.HasSuffix(buf.String(), "\n") {
 		t.Error("output should end with a newline")

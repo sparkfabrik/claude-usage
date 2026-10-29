@@ -283,7 +283,7 @@ claude-usage --report 30d > usage-30d.json
 }
 ```
 
-- `window` — the period is rolling from the moment the command runs, like `--period`; `from` and `to` are UTC. `active_days` counts local calendar days, like the dashboard, so `timezone` and `utc_offset` say which calendar was used.
+- `window` — the period is rolling from the moment the command runs, like `--period`; `from` and `to` are UTC. For `all`, which has no lower bound, `from` is the earliest request found in the transcripts, and it is absent when there are none. `active_days` counts local calendar days, like the dashboard, so `timezone` and `utc_offset` say which calendar was used.
 - `totals` and `models[]` — tokens by type, cost at list prices, number of requests (assistant messages) and, for the totals, sessions and active days. `cache_write_1h` is the part of `cache_write` written with the 1-hour cache, which costs more; `total` counts it once. Models are listed heaviest first; `id` is the identifier found in the transcripts, `name` its display form.
 - `sessions` — a session is a transcript file together with the subagent transcripts it spawned; `cost_median_usd` and `cost_p90_usd` are computed on the cost of each session (the p90 is the nearest-rank percentile). Both are `0` when the period has no sessions.
 - `priced` and `unpriced_models` — a model missing from the price table is costed with the fallback price (the Sonnet 4 rate) and flagged, so the figure is recognisable as a guess; add the model under `pricing:` in the config to price it, which sets `pricing` to `config`.

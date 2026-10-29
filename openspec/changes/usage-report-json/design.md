@@ -10,7 +10,7 @@ The CLI already walks the transcripts (`internal/reader`), aggregates entries by
 
 ### Period semantics are the dashboard's
 
-The labels are exactly those `--period` accepts, resolved with `analyzer.FindPeriod`: rolling from the moment the command runs, `now - N days` to `now`. Days for `active_days` are counted on the local calendar, the rule the rest of the tool already follows and documents. The document records `from` and `to` in UTC and the zone (`timezone`, `utc_offset`) so a file is self-describing wherever it is read. Go reports an unnamed local zone as `Local`; the report substitutes the abbreviation in force at generation time.
+The labels are exactly those `--period` accepts, resolved with `analyzer.FindPeriod`: rolling from the moment the command runs, `now - N days` to `now`. Days for `active_days` are counted on the local calendar, the rule the rest of the tool already follows and documents. The document records `from` and `to` in UTC and the zone (`timezone`, `utc_offset`) so a file is self-describing wherever it is read. Go reports an unnamed local zone as `Local`; the report substitutes the abbreviation in force at generation time. The `all` period has no lower bound, which Go would print as the year 1; the report puts the earliest request on disk in `from` instead, the true start of what it covers, and leaves the field out when there is nothing on disk.
 
 ### The report bypasses the stats cache
 

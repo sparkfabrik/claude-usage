@@ -15,7 +15,7 @@ An unknown period, a failure to walk the transcripts, or a conflicting flag writ
 Top-level fields: `schema`, `version`, `generated_at`, `window`, `cost_basis`, `pricing`, `totals`, `models`, `sessions`, and `unpriced_models` when it is not empty.
 
 - `schema` is `claude-usage/report/1`. It changes only when a field is renamed or removed; additions keep the value.
-- `window` carries `label`, `from` and `to` as RFC 3339 in UTC, `timezone` (the local zone name, or its abbreviation when the zone is unnamed) and `utc_offset` as `+hh:mm`.
+- `window` carries `label`, `from` and `to` as RFC 3339 in UTC, `timezone` (the local zone name, or its abbreviation when the zone is unnamed) and `utc_offset` as `+hh:mm`. For `all`, `from` is the earliest request found in the transcripts, and the field is absent when there are none; every other label keeps its rolling bound.
 - `totals` carries `tokens` (`input`, `output`, `cache_write`, `cache_write_1h`, `cache_read`, `total`), `cost_usd`, `requests`, `sessions`, `active_days`. `cache_write_1h` is the part of `cache_write` written with the 1-hour cache lifetime; `total` counts it once.
 - `models[]` is ordered heaviest first and carries `id` (the identifier found in the transcripts), `name` (display form), `tokens`, `cost_usd`, `requests`, `priced`.
 - `sessions` carries `count`, `cost_median_usd`, `cost_p90_usd`.

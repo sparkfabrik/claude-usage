@@ -336,3 +336,48 @@ func TestBuild_CacheWrite1hReportedAndPriced(t *testing.T) {
 		t.Errorf("cost_basis = %q", got.CostBasis)
 	}
 }
+
+// The "all" period has no lower bound; the window then starts at the
+// earliest request on disk, and has no "from" at all when there is none.
+func TestBuild_AllPeriodWindowFrom(t *testing.T) {
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	all := analyzer.TimePeriod{Label: "all", Start: time.Time{}, End: now}
+	entries := []reader.UsageEntry{
+		entry(now.Add(-time.Hour), "claude-opus-5-5", "s1", 10, 1, 0, 0),
+		entry(now.Add(-72*time.Hour), "claude-opus-5-5", "s2", 10, 1, 0, 0),
+		entry(now.Add(-2*time.Hour), "claude-opus-5-5", "s1", 10, 1, 0, 0),
+	}
+
+	r := Build(entries, all, now, "test", nil)
+	if want := now.Add(-72 * time.Hour).Format(time.RFC3339); r.Window.From != want {
+		t.Errorf("Window.From = %q, want the earliest request %q", r.Window.From, want)
+	}
+
+	r = Build(nil, all, now, "test", nil)
+	if r.Window.From != "" {
+		t.Errorf("Window.From = %q, want empty with no transcripts", r.Window.From)
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Window map[string]any `json:"window"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.Window["from"]; ok {
+		t.Error("window.from should be omitted when there is nothing to bound")
+	}
+	if got.Window["to"] != now.Format(time.RFC3339) {
+		t.Errorf("window.to = %v", got.Window["to"])
+	}
+
+	// A bounded period keeps its own start even when the data begins later.
+	bounded := period(now.Add(-30*24*time.Hour), now)
+	r = Build(entries, bounded, now, "test", nil)
+	if want := bounded.Start.Format(time.RFC3339); r.Window.From != want {
+		t.Errorf("30d Window.From = %q, want the period start %q", r.Window.From, want)
+	}
+}

@@ -38,12 +38,14 @@ type Tokens struct {
 }
 
 // Window is the period the report covers. From and To are RFC 3339 in UTC.
-// Timezone and UTCOffset describe the local zone whose calendar decides
-// active days: the zone name when the process knows it, otherwise the
-// abbreviation in force at generation time, and the offset as +hh:mm.
+// For the unbounded "all" period, From is the earliest request found in the
+// transcripts, and it is absent when there are none. Timezone and UTCOffset
+// describe the local zone whose calendar decides active days: the zone name
+// when the process knows it, otherwise the abbreviation in force at
+// generation time, and the offset as +hh:mm.
 type Window struct {
 	Label     string `json:"label"`
-	From      string `json:"from"`
+	From      string `json:"from,omitempty"`
 	To        string `json:"to"`
 	Timezone  string `json:"timezone"`
 	UTCOffset string `json:"utc_offset"`
@@ -108,7 +110,7 @@ func Build(entries []reader.UsageEntry, period analyzer.TimePeriod, now time.Tim
 		GeneratedAt: now.UTC().Format(time.RFC3339),
 		Window: Window{
 			Label:     period.Label,
-			From:      period.Start.UTC().Format(time.RFC3339),
+			From:      windowFrom(period.Start, inWindow),
 			To:        period.End.UTC().Format(time.RFC3339),
 			Timezone:  zoneName(now),
 			UTCOffset: now.Format("-07:00"),
@@ -144,6 +146,23 @@ func Build(entries []reader.UsageEntry, period analyzer.TimePeriod, now time.Tim
 
 	r.Sessions = sessionCosts(inWindow, overrides)
 	return r
+}
+
+// windowFrom formats the lower bound of the window: the period's start, or,
+// when the period has none, the earliest entry it covers; "" when it has
+// neither.
+func windowFrom(start time.Time, entries []reader.UsageEntry) string {
+	if start.IsZero() {
+		for _, e := range entries {
+			if start.IsZero() || e.Timestamp.Before(start) {
+				start = e.Timestamp
+			}
+		}
+		if start.IsZero() {
+			return ""
+		}
+	}
+	return start.UTC().Format(time.RFC3339)
 }
 
 // zoneName returns the location name, or the abbreviation in force at t

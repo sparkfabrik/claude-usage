@@ -45,7 +45,12 @@
 - [x] 7.3 Tests: at and over the threshold, cache reads counted toward it, output at the tier rate, no tier on any other row, override with and without the block, config parse.
 - [x] 7.4 README cost note.
 
-## 8. Verification
+## 8. Window of the `all` period
 
-- [x] 8.1 `go vet`, `go test ./...` (the pre-existing `internal/auth` Keychain test is environment-dependent on macOS), golangci-lint v2.14.0 clean.
-- [x] 8.2 On a machine with 30 days of transcripts, the report's token totals equal the dashboard's `30d` row.
+- [x] 8.1 `from` is the earliest request on disk for `all`, omitted when there is none; bounded labels unchanged.
+- [x] 8.2 Tests in report and cmd; README and spec.
+
+## 9. Verification
+
+- [x] 9.1 `go vet`, `go test ./...` (the pre-existing `internal/auth` Keychain test is environment-dependent on macOS), golangci-lint v2.14.0 clean.
+- [x] 9.2 On a machine with 30 days of transcripts, the report's token totals equal the dashboard's `30d` row.
