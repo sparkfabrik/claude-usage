@@ -508,3 +508,102 @@ func createTestProjectsDir(t *testing.T) string {
 	}
 	return dir
 }
+
+// A subagent transcript lives under <session>/subagents/ and carries the
+// parent session id in every line, so its requests belong to that session.
+func TestLoadEntries_SubagentKeyedOnParentSession(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	subDir := filepath.Join(projectDir, "sess-1", "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	parent := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","sessionId":"sess-1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	child := `{"type":"assistant","timestamp":"2026-08-25T10:01:00Z","uuid":"u2","requestId":"r2","sessionId":"sess-1","message":{"id":"m2","model":"claude-opus-5-5","usage":{"input_tokens":20,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "sess-1.jsonl"), []byte(parent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "agent-abc.jsonl"), []byte(child), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	for _, e := range entries {
+		if e.SessionID != "sess-1" {
+			t.Errorf("SessionID = %q, want sess-1 for both the session and its subagent", e.SessionID)
+		}
+	}
+}
+
+// Lines without a sessionId field keep the file name as the session, as
+// older transcripts do.
+func TestLoadEntries_SessionFallsBackToFileName(t *testing.T) {
+	dir := createTestProjectsDir(t)
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	for _, e := range entries {
+		if e.SessionID != "session-abc" {
+			t.Errorf("SessionID = %q, want session-abc", e.SessionID)
+		}
+	}
+}
+
+// Claude Code writes "<synthetic>" for messages it produces itself; they are
+// not API usage and must not become a model row.
+func TestLoadEntries_SkipsSyntheticAndEmptyModel(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonl := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"<synthetic>","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-08-25T10:00:01Z","uuid":"u2","requestId":"r2","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-08-25T10:00:02Z","uuid":"u3","requestId":"r3","message":{"id":"m3","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "s.jsonl"), []byte(jsonl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Model != "claude-opus-5-5" {
+		t.Errorf("want only the real model entry, got %+v", entries)
+	}
+}
+
+// Newer transcripts add a usage.iterations list next to the top-level
+// counts. The top-level fields are the bill for the line and are what the
+// reader takes; the list is ignored.
+func TestLoadEntries_TopLevelUsageWithIterations(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonl := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-fable-5-1","usage":{"input_tokens":2,"cache_creation_input_tokens":26336,"cache_read_input_tokens":29114,"output_tokens":269,"cache_creation":{"ephemeral_1h_input_tokens":26336,"ephemeral_5m_input_tokens":0},"iterations":[{"input_tokens":2,"output_tokens":269,"cache_read_input_tokens":29114,"cache_creation_input_tokens":26336,"type":"message"}]}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "s.jsonl"), []byte(jsonl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.InputTokens != 2 || e.OutputTokens != 269 || e.CacheCreationTokens != 26336 || e.CacheReadTokens != 29114 {
+		t.Errorf("tokens = %d/%d/%d/%d, want 2/269/26336/29114", e.InputTokens, e.OutputTokens, e.CacheCreationTokens, e.CacheReadTokens)
+	}
+}

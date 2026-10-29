@@ -30,6 +30,9 @@ type UsageEntry struct {
 	// is present.
 	EntryUUID string
 	RequestID string
+	// SessionID is the session the entry belongs to: the transcript's own
+	// sessionId field, which a subagent transcript shares with the session
+	// that spawned it, or the file name when the field is absent.
 	SessionID string
 	Project   string
 }
@@ -104,6 +107,7 @@ type jsonlRecord struct {
 	Timestamp json.RawMessage `json:"timestamp"`
 	UUID      string          `json:"uuid"`
 	RequestID string          `json:"requestId"`
+	SessionID string          `json:"sessionId"`
 	Message   struct {
 		ID    string `json:"id"`
 		Model string `json:"model"`
@@ -143,6 +147,11 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 		if usage.InputTokens == 0 && usage.OutputTokens == 0 {
 			continue
 		}
+		// Claude Code writes "<synthetic>" for messages it produces itself,
+		// not the API; they are not usage and have no price.
+		if rec.Message.Model == "" || rec.Message.Model == "<synthetic>" {
+			continue
+		}
 
 		ts := parseTimestamp(rec.Timestamp)
 		if ts.IsZero() {
@@ -156,6 +165,14 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 			continue
 		}
 
+		// A subagent transcript lives under <session>/subagents/ and names
+		// its parent in sessionId, so its requests count toward that session
+		// instead of becoming a session of their own.
+		session := rec.SessionID
+		if session == "" {
+			session = sessionID
+		}
+
 		entry := UsageEntry{
 			Timestamp:           ts,
 			Model:               rec.Message.Model,
@@ -166,7 +183,7 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 			MessageID:           rec.Message.ID,
 			EntryUUID:           rec.UUID,
 			RequestID:           rec.RequestID,
-			SessionID:           sessionID,
+			SessionID:           session,
 			Project:             project,
 		}
 
