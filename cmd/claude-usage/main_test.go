@@ -1788,18 +1788,40 @@ func TestRunReport_EmptyProjects(t *testing.T) {
 	}
 }
 
+// The fixture carries identifiers with the shape of real ones: a project
+// directory named after a home path, UUID session ids, message and request
+// ids, a subagent file. None of them may reach the output.
 func TestRunReport_AggregatesTranscripts(t *testing.T) {
+	const (
+		project   = "-Users-jane-repos-secret-project"
+		session1  = "7d3f2a9c-5b1e-4c8d-9f0a-1b2c3d4e5f60"
+		session2  = "0a1b2c3d-4e5f-4a6b-8c7d-9e8f7a6b5c4d"
+		agentFile = "agent-a1b2c3d4e5"
+		msg1      = "msg_01HXK3YV9Q2W8R7T6S5P4N3M2L"
+		msg2      = "msg_01JABCDEF123456789GHJKLMNP"
+		msg3      = "msg_01KZYXWVUTSRQPONMLKJHGFEDC"
+		req1      = "req_011CPq9dXxLq8vYz2W3E4R5T6Y"
+		req2      = "req_011CQaBcDeFgHiJkLmNoPqRsT7"
+		req3      = "req_011CRzYxWvUtSrQpOnMlKjIhG8"
+	)
 	dir := t.TempDir()
-	projectDir := filepath.Join(dir, "proj")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+	projectDir := filepath.Join(dir, project)
+	subDir := filepath.Join(projectDir, session1, "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	jsonl := fmt.Sprintf(
-		`{"type":"assistant","timestamp":"%s","uuid":"u1","requestId":"r1","sessionId":"s1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":1000,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
-{"type":"assistant","timestamp":"%s","uuid":"u2","requestId":"r2","sessionId":"s2","message":{"id":"m2","model":"claude-opus-5-5","usage":{"input_tokens":3000,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
-`, now.Add(-2*time.Hour).Format(time.RFC3339Nano), now.Add(-time.Hour).Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(projectDir, "s1.jsonl"), []byte(jsonl), 0o644); err != nil {
+	line := func(ts time.Time, uuid, req, session, msg string, input int) string {
+		return fmt.Sprintf(`{"type":"assistant","timestamp":"%s","uuid":"%s","requestId":"%s","sessionId":"%s","message":{"id":"%s","model":"claude-opus-5-5","usage":{"input_tokens":%d,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}`+"\n",
+			ts.Format(time.RFC3339Nano), uuid, req, session, msg, input)
+	}
+	main := line(now.Add(-2*time.Hour), "11111111-2222-4333-8444-555555555555", req1, session1, msg1, 1000) +
+		line(now.Add(-time.Hour), "66666666-7777-4888-8999-000000000000", req2, session2, msg2, 2000)
+	sub := line(now.Add(-90*time.Minute), "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", req3, session1, msg3, 1000)
+	if err := os.WriteFile(filepath.Join(projectDir, session1+".jsonl"), []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, agentFile+".jsonl"), []byte(sub), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1828,17 +1850,25 @@ func TestRunReport_AggregatesTranscripts(t *testing.T) {
 	if got.Window.Label != "7d" {
 		t.Errorf("window label = %q, want 7d", got.Window.Label)
 	}
-	if got.Totals.Tokens.Input != 4000 || got.Totals.Tokens.Output != 200 || got.Totals.Tokens.Total != 4200 {
+	if got.Totals.Tokens.Input != 4000 || got.Totals.Tokens.Output != 300 || got.Totals.Tokens.Total != 4300 {
 		t.Errorf("totals = %+v", got.Totals.Tokens)
 	}
-	if got.Totals.Sessions != 2 || got.Sessions.Count != 2 || got.Totals.Requests != 2 {
+	// Three requests in two sessions: the subagent file belongs to session1.
+	if got.Totals.Sessions != 2 || got.Sessions.Count != 2 || got.Totals.Requests != 3 {
 		t.Errorf("sessions/requests = %+v / %+v", got.Totals, got.Sessions)
 	}
 	if len(got.Models) != 1 || got.Models[0].ID != "claude-opus-5-5" || !got.Models[0].Priced {
 		t.Errorf("models = %+v", got.Models)
 	}
-	if strings.Contains(buf.String(), "proj") || strings.Contains(buf.String(), "s1") {
-		t.Errorf("report must not contain project or session identifiers:\n%s", buf.String())
+	for _, id := range []string{
+		project, "jane", "secret-project", dir,
+		session1, session2, agentFile,
+		msg1, msg2, msg3, req1, req2, req3,
+		"11111111-2222", "66666666-7777", "aaaaaaaa-bbbb",
+	} {
+		if strings.Contains(buf.String(), id) {
+			t.Errorf("report must not contain the identifier %q:\n%s", id, buf.String())
+		}
 	}
 }
 
