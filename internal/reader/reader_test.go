@@ -644,3 +644,103 @@ func TestLoadEntries_CacheWrite1hBreakdown(t *testing.T) {
 		}
 	}
 }
+
+// A transcript that cannot be opened is skipped by LoadEntries, with the
+// readable ones still returned, and fails LoadEntriesStrict.
+func TestLoadEntries_UnreadableTranscript(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "ok.jsonl"), []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(projectDir, "locked.jsonl")
+	if err := os.WriteFile(locked, []byte(line), 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries should skip the unreadable file, got %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("LoadEntries returned %d entries, want the 1 readable one", len(entries))
+	}
+
+	entries, err = LoadEntriesStrict(dir, nil, nil)
+	if err == nil {
+		t.Fatal("LoadEntriesStrict should fail on an unreadable transcript")
+	}
+	if !strings.Contains(err.Error(), "locked.jsonl") {
+		t.Errorf("error should name the file, got %v", err)
+	}
+	if entries != nil {
+		t.Errorf("no entries should be returned with the error, got %d", len(entries))
+	}
+}
+
+// A line over the scanner limit stops the file. LoadEntries keeps what was
+// read before it and warns; LoadEntriesStrict fails, because the rest of the
+// file is unknown.
+func TestLoadEntries_LineOverLimit(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	// One good line, then a line past the 10MB scanner buffer.
+	huge := `{"type":"assistant","pad":"` + strings.Repeat("x", 10*1024*1024+1) + `"}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "s.jsonl"), []byte(line+huge+line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries should tolerate the long line, got %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("LoadEntries returned %d entries, want the 1 read before the long line", len(entries))
+	}
+
+	if _, err := LoadEntriesStrict(dir, nil, nil); err == nil || !strings.Contains(err.Error(), "s.jsonl") {
+		t.Errorf("LoadEntriesStrict should fail naming the file, got %v", err)
+	}
+}
+
+// Both loaders treat a missing projects directory as no usage, not an error.
+func TestLoadEntriesStrict_MissingDirectory(t *testing.T) {
+	entries, err := LoadEntriesStrict(filepath.Join(t.TempDir(), "absent"), nil, nil)
+	if err != nil || entries != nil {
+		t.Errorf("got (%v, %v), want (nil, nil)", entries, err)
+	}
+}
+
+// A directory that cannot be listed fails the strict loader only.
+func TestLoadEntriesStrict_UnlistableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	dir := t.TempDir()
+	closed := filepath.Join(dir, "closed")
+	if err := os.MkdirAll(closed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(closed, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o755) })
+
+	if _, err := LoadEntries(dir, nil, nil); err != nil {
+		t.Errorf("LoadEntries should skip the directory, got %v", err)
+	}
+	if _, err := LoadEntriesStrict(dir, nil, nil); err == nil {
+		t.Error("LoadEntriesStrict should fail on a directory it cannot list")
+	}
+}

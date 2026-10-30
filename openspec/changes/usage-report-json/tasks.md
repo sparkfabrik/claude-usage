@@ -50,7 +50,14 @@
 - [x] 8.1 `from` is the earliest request on disk for `all`, omitted when there is none; bounded labels unchanged.
 - [x] 8.2 Tests in report and cmd; README and spec.
 
-## 9. Verification
+## 9. Review follow-ups (PR 22)
+
+- [x] 9.1 Dispatch `--report` on the flag's presence so `--report=` fails on the empty period; integration test on the binary.
+- [x] 9.2 Resolve only dated variants through the prefix table, so a new minor version is reported unpriced; tests for variants and non-variants.
+- [x] 9.3 `reader.LoadEntriesStrict` failing on an unreadable transcript, an unlistable directory or a line over the scanner limit; `--report` uses it; tests in reader and cmd.
+- [x] 9.4 Declined: distinguishing an explicit `cache_write_1h: 0` from an omitted key. No model has a free 1-hour cache and every other override field already reads 0 as 0; documented that 0 and omitted both derive.
+
+## 10. Verification
 
 - [x] 9.1 `go vet`, `go test ./...` (the pre-existing `internal/auth` Keychain test is environment-dependent on macOS), golangci-lint v2.14.0 clean.
 - [x] 9.2 On a machine with 30 days of transcripts, the report's token totals equal the dashboard's `30d` row.

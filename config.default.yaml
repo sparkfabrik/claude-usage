@@ -39,7 +39,7 @@ cache:
 
 # Override model pricing (per 1M tokens, USD)
 # cache_write is the 5-minute cache write rate, cache_write_1h the 1-hour one
-# (1.6x cache_write when omitted). long_prompt, optional, is the rate set a
+# (1.6x cache_write when omitted or 0). long_prompt, optional, is the rate set a
 # request pays when its prompt (input plus cache reads and writes) is over
 # threshold tokens; an override without it has one flat rate.
 # pricing:

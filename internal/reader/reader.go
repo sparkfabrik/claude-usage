@@ -70,8 +70,23 @@ func ProjectsPath() (string, error) {
 	return filepath.Join(home, ".claude", "projects"), nil
 }
 
-// LoadEntries loads and deduplicates usage entries from all JSONL files.
+// LoadEntries loads and deduplicates usage entries from all JSONL files. A
+// transcript that cannot be opened or read to its end is skipped with a
+// warning on stderr, so one bad file never blanks the dashboard or a reader
+// that polls every minute.
 func LoadEntries(projectsPath string, since, until *time.Time) ([]UsageEntry, error) {
+	return load(projectsPath, since, until, false)
+}
+
+// LoadEntriesStrict is LoadEntries for a one-off report: a directory that
+// cannot be listed or a transcript that cannot be opened or read to its end
+// fails the load, so the caller never prints an incomplete total as if it
+// were the whole. A missing projects directory is still an empty result.
+func LoadEntriesStrict(projectsPath string, since, until *time.Time) ([]UsageEntry, error) {
+	return load(projectsPath, since, until, true)
+}
+
+func load(projectsPath string, since, until *time.Time, strict bool) ([]UsageEntry, error) {
 	if projectsPath == "" {
 		p, err := ProjectsPath()
 		if err != nil {
@@ -88,12 +103,23 @@ func LoadEntries(projectsPath string, since, until *time.Time) ([]UsageEntry, er
 	var entries []UsageEntry
 
 	if err := filepath.WalkDir(projectsPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+		if err != nil {
+			if strict {
+				return err
+			}
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
 		sessionID := strings.TrimSuffix(d.Name(), ".jsonl")
 		project := filepath.Base(filepath.Dir(path))
-		parseFile(path, sessionID, project, since, until, seen, &entries)
+		if err := parseFile(path, sessionID, project, since, until, seen, &entries); err != nil {
+			if strict {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("walking projects directory: %w", err)
@@ -127,10 +153,13 @@ type jsonlRecord struct {
 	} `json:"message"`
 }
 
-func parseFile(path, sessionID, project string, since, until *time.Time, seen map[string]bool, entries *[]UsageEntry) {
+// parseFile appends the usage entries of one transcript. It returns an error
+// when the file cannot be opened or read to its end (an I/O failure or a
+// line over the scanner limit); the entries read before the failure are kept.
+func parseFile(path, sessionID, project string, since, until *time.Time, seen map[string]bool, entries *[]UsageEntry) error {
 	f, err := os.Open(path)
 	if err != nil {
-		return
+		return err
 	}
 	defer f.Close()
 
@@ -217,8 +246,9 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 	}
 	// Check for scanner errors (e.g. line too long, I/O error).
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: error reading %s: %v\n", path, err)
+		return fmt.Errorf("reading %s: %w", path, err)
 	}
+	return nil
 }
 
 func parseTimestamp(raw json.RawMessage) time.Time {
