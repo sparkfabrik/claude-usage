@@ -1890,3 +1890,62 @@ func TestBuildPricingOverrides_LongPrompt(t *testing.T) {
 		t.Errorf("tier = %+v, want threshold 100000 and %+v", got.LongPrompt, wantTier)
 	}
 }
+
+// The report must not print an incomplete total: a transcript that cannot
+// be read fails the command, with nothing on stdout.
+func TestRunReport_UnreadableTranscriptFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "locked.jsonl"), []byte(line), 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	err := runReport(&buf, config.Default(), dir, "all")
+	if err == nil || !strings.Contains(err.Error(), "loading usage data") {
+		t.Fatalf("expected a loading error, got %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("nothing should be written on error, got %q", buf.String())
+	}
+}
+
+// --report= (an unset shell variable) must fail on the empty period, never
+// fall through to the dashboard. The binary is run with a config directory
+// that holds no credentials and --no-poll, so a fall-through would print the
+// dashboard rather than reach the network.
+func TestCLI_ReportEmptyPeriodIsRejected(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	binary := buildTestBinary(t)
+
+	for _, args := range [][]string{
+		{"--report=", "--no-poll"},
+		{"--report", "", "--no-poll"},
+	} {
+		cmd := exec.Command(binary, args...)
+		cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+t.TempDir(), "XDG_CACHE_HOME="+t.TempDir())
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err == nil {
+			t.Errorf("%v: expected exit 1, got success with stdout %q", args, stdout.String())
+			continue
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("%v: nothing should be printed on stdout, got %q", args, stdout.String())
+		}
+		if !strings.Contains(stderr.String(), `unknown period ""`) {
+			t.Errorf("%v: stderr should name the empty period, got %q", args, stderr.String())
+		}
+	}
+}

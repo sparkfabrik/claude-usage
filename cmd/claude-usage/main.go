@@ -199,7 +199,10 @@ func main() {
 
 	// --report reads transcripts and the price table, nothing else: no
 	// credentials, no cache, no network. It is checked before auth.Load().
-	if *reportPeriod != "" {
+	// The flag's presence decides, not its value: --report= (an unset shell
+	// variable) must fail on the empty period, never fall through to the
+	// dashboard and poll the API.
+	if flag.CommandLine.Changed("report") {
 		if other := reportConflict(flag.CommandLine.Changed); other != "" {
 			fmt.Fprintf(os.Stderr, "Error: --report cannot be combined with --%s\n", other)
 			os.Exit(1)
@@ -264,13 +267,15 @@ func reportConflict(changed func(string) bool) string {
 
 // runReport prints the JSON usage report for one period. It walks the
 // transcripts on every run instead of reading the stats cache: the report is
-// a one-off command and must reflect what is on disk now.
+// a one-off command and must reflect what is on disk now. The walk is strict:
+// a transcript that cannot be read in full fails the report, because a total
+// that silently leaves a file out is worse than no total.
 func runReport(w io.Writer, cfg *config.Config, projectsPath, periodLabel string) error {
 	p, ok := analyzer.FindPeriod(periodLabel)
 	if !ok {
 		return fmt.Errorf("unknown period %q (valid: today, 7d, 30d, all)", periodLabel)
 	}
-	entries, err := reader.LoadEntries(projectsPath, nil, nil)
+	entries, err := reader.LoadEntriesStrict(projectsPath, nil, nil)
 	if err != nil {
 		return fmt.Errorf("loading usage data: %w", err)
 	}
