@@ -90,8 +90,12 @@ var DefaultPricing = map[string]ModelPrice{
 	"claude-3-5-sonnet-20240620": price(3.0, 15.0, 3.75, 6.0, 0.30),
 }
 
-// prefixMap for fallback matching of unknown model variants.
-// Longer prefixes first so date-suffixed variants match correctly.
+// prefixMap resolves a dated variant of a known model to its row: the row's
+// id, a hyphen and an eight-digit date, as in claude-opus-4-5-20251101. The
+// match stops there on purpose. A new minor version such as claude-opus-5-6
+// is not a variant of claude-opus-5 and must stay unknown, so that Known
+// reports it and the report flags its cost as a guess instead of pricing it
+// at the previous version's rate as if it were a list price.
 var prefixMap = []struct {
 	prefix string
 	key    string
@@ -130,18 +134,34 @@ func Known(model string, overrides map[string]ModelPrice) bool {
 		return true
 	}
 	for _, pm := range prefixMap {
-		if strings.HasPrefix(model, pm.prefix) {
+		if datedVariant(model, pm.prefix) {
 			return true
 		}
 	}
 	return false
 }
 
-// Get returns pricing for a model. Falls back to prefix matching, then Sonnet.
-// An override without a 1-hour cache write rate gets 1.6x its 5-minute rate,
-// the ratio every row of the pricing page follows (2x over 1.25x input); the
-// same applies to the override's long-prompt tier. An override without a
-// tier has none, whatever the built-in row says.
+// datedVariant reports whether model is base followed by a hyphen and an
+// eight-digit date.
+func datedVariant(model, base string) bool {
+	rest, ok := strings.CutPrefix(model, base+"-")
+	if !ok || len(rest) != 8 {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] < '0' || rest[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// Get returns pricing for a model: the override, the exact row, the row of
+// which the model is a dated variant, or the Sonnet 4 fallback.
+// An override whose 1-hour cache write rate is left out or 0 gets 1.6x its
+// 5-minute rate, the ratio every row of the pricing page follows (2x over
+// 1.25x input); the same applies to the override's long-prompt tier. An
+// override without a tier has none, whatever the built-in row says.
 func Get(model string, overrides map[string]ModelPrice) ModelPrice {
 	if overrides != nil {
 		if p, ok := overrides[model]; ok {
@@ -160,7 +180,7 @@ func Get(model string, overrides map[string]ModelPrice) ModelPrice {
 		return p
 	}
 	for _, pm := range prefixMap {
-		if strings.HasPrefix(model, pm.prefix) {
+		if datedVariant(model, pm.prefix) {
 			return DefaultPricing[pm.key]
 		}
 	}

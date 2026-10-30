@@ -288,6 +288,7 @@ claude-usage --report 30d > usage-30d.json
 - `sessions` — a session is a transcript file together with the subagent transcripts it spawned; `cost_median_usd` and `cost_p90_usd` are computed on the cost of each session (the p90 is the nearest-rank percentile). Both are `0` when the period has no sessions.
 - `priced` and `unpriced_models` — a model missing from the price table is costed with the fallback price (the Sonnet 4 rate) and flagged, so the figure is recognisable as a guess; add the model under `pricing:` in the config to price it, which sets `pricing` to `config`.
 - The document carries no project path, session id or other identifying field. The report covers what is still on disk: Claude Code keeps transcripts for `cleanupPeriodDays`, 30 by default.
+- The command fails, with nothing on stdout, when a transcript cannot be opened or read to its end: a total that silently leaves a file out would be mistaken for the whole. The dashboard and `--status` keep skipping such files with a warning.
 
 ## Configuration
 
@@ -349,7 +350,7 @@ cache:
 
 Cost values shown are **API-equivalent estimates** based on token counts and published pricing. If you're on a Claude subscription (Pro/Team/Enterprise), usage is included in your plan — the costs shown represent what the equivalent API usage would cost, not actual charges.
 
-Cache writes are priced at the rate of the cache lifetime each request used: Claude Code records the split between 5-minute writes (1.25x input) and 1-hour writes (2x input) in every transcript line, and the main conversation on a subscription uses the 1-hour cache. Haiku 5.5 is priced by prompt length, as on the pricing page: a request whose prompt (input plus cache reads and writes) is over 100K tokens pays the higher rates on every token. The built-in table follows the [Anthropic pricing page](https://platform.claude.com/docs/en/about-claude/pricing); a model that is not in it is priced at the Sonnet 4 rate and reported as unpriced by `--report`. A pricing override in the config file may set `cache_write_1h` (1.6x `cache_write` when left out) and an optional `long_prompt` block with a `threshold` and its own rates; an override without the block has one flat rate.
+Cache writes are priced at the rate of the cache lifetime each request used: Claude Code records the split between 5-minute writes (1.25x input) and 1-hour writes (2x input) in every transcript line, and the main conversation on a subscription uses the 1-hour cache. Haiku 5.5 is priced by prompt length, as on the pricing page: a request whose prompt (input plus cache reads and writes) is over 100K tokens pays the higher rates on every token. The built-in table follows the [Anthropic pricing page](https://platform.claude.com/docs/en/about-claude/pricing); a model that is not in it is priced at the Sonnet 4 rate and reported as unpriced by `--report`. Only a dated variant of a known id (`claude-opus-4-5-20251101`) resolves to that id's row; a new minor version is unpriced until the table has it. A pricing override in the config file may set `cache_write_1h` (1.6x `cache_write` when left out or `0`) and an optional `long_prompt` block with a `threshold` and its own rates; an override without the block has one flat rate.
 
 ## License
 

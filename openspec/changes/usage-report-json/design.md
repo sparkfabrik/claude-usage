@@ -30,7 +30,7 @@ Newer transcripts add `usage.iterations`, a per-iteration list next to the top-l
 
 ### Pricing: list prices, cache writes at their recorded rate, flagged unknowns
 
-The table gains the Claude 5 generation from the Anthropic pricing page, read on 2026-10-28, with the longest prefixes first so `claude-opus-5-5` resolves before `claude-opus-5`. The fallback for an unknown model stays the Sonnet 4 rate, as the dashboard shows; the report adds `priced: false` on the model row and lists the id in `unpriced_models`, so the guess is visible. `pricing` says `bundled` or `config` depending on whether overrides were loaded, and `cost_basis` states the rule in words.
+The table gains the Claude 5 generation from the Anthropic pricing page, read on 2026-10-28, with a prefix rule that resolves only a dated variant of a known id (the id, a hyphen and an eight-digit date) to that id's row: a new minor version such as `claude-opus-5-6` is not a variant of `claude-opus-5` and stays unknown, so its cost is flagged as a guess rather than reported as a list price. The fallback for an unknown model stays the Sonnet 4 rate, as the dashboard shows; the report adds `priced: false` on the model row and lists the id in `unpriced_models`, so the guess is visible. `pricing` says `bundled` or `config` depending on whether overrides were loaded, and `cost_basis` states the rule in words.
 
 ### Cache writes: two rates, read from the transcript
 
@@ -41,6 +41,14 @@ The reader keeps the 1-hour count on the entry (`CacheWrite1hTokens`, clamped to
 ### Haiku 5.5: priced by prompt length
 
 The pricing page bills every Claude 4.6+ model at one rate across its context window, except Haiku 5.5, which has a second row for a request whose prompt is over 100K tokens: 5x on input, output, cache writes and cache reads. The prompt length is every input token of the request, cache reads and writes included, and each request is priced on its own. The transcript carries exactly those counts per request, so the rule is applied exactly: `ModelPrice` gains an optional `LongPrompt` tier (threshold and a second rate set), the Haiku 5.5 row is the only one that sets it, and `Calculate`, which already runs once per request, switches to the tier rates when `input + cache writes + cache reads` is over the threshold. A config override may carry a `long_prompt` block; an override without it has one flat rate, so a user's prices are never mixed with the built-in tier.
+
+### Unreadable transcripts fail the report
+
+`reader.LoadEntries` skips a transcript it cannot open and stops at a line over its 10 MB scanner limit with a warning on stderr, so one bad file never blanks the dashboard or a reader polling every minute. The report cannot afford that: an exit 0 with a total that silently leaves a file out would be taken for the whole in a survey. `reader.LoadEntriesStrict` returns the first such failure instead, and `--report` uses it; a missing projects directory is still an empty report. The 10 MB limit has headroom (the largest line found on a working machine was 2.3 MB) but is not unreachable.
+
+### `--report` dispatches on the flag's presence
+
+The flag is checked with `Changed("report")`, not on a non-empty value, so `--report=` from an unset shell variable fails on the empty period instead of falling through to the dashboard and polling the API.
 
 ### Percentiles
 

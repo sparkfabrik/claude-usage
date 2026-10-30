@@ -8,7 +8,7 @@ The `--report` command, its document, and the rules it must keep.
 
 The command reads the local transcripts and the price table only. It makes no network call, reads no credentials, and neither reads nor writes the stats cache. `--config` selects the configuration file for pricing overrides. The flags `--status`, `--poll-only`, `--period`, `--force-poll` and `--no-cost` are rejected with an error that names the flag; `--no-poll` is accepted and has no effect.
 
-An unknown period, a failure to walk the transcripts, or a conflicting flag writes one line on stderr and exits 1 with nothing on stdout. A machine with no transcripts produces a valid document with zero totals.
+An unknown period (the empty one included, as with `--report=`), a failure to walk the transcripts, a transcript that cannot be opened or read to its end, or a conflicting flag writes one line on stderr and exits 1 with nothing on stdout. A machine with no transcripts produces a valid document with zero totals.
 
 ## Document
 
@@ -34,7 +34,7 @@ Top-level fields: `schema`, `version`, `generated_at`, `window`, `cost_basis`, `
 
 Every `cost_usd` is computed from the token counts at the list prices of the built-in table, or at the overrides from the configuration file when present, in which case `pricing` is `config` instead of `bundled`. Cache writes are priced at the rate of the cache lifetime the transcript records for each request: the 5-minute rate for `cache_write` less `cache_write_1h`, the 1-hour rate for `cache_write_1h`; a line without the breakdown is all 5-minute writes. An override that leaves `cache_write_1h` out gets 1.6x its `cache_write`. A model priced by prompt length on the pricing page (Haiku 5.5) pays its over-threshold rates on every token of a request whose prompt, input plus cache reads and writes, is over the threshold; an override applies a tier only when it carries a `long_prompt` block. `cost_basis` states the rule in words: list prices, cache writes at their recorded TTL rate.
 
-A model without a row, a prefix or an override is costed with the fallback price, reported with `priced: false` on its row and listed in `unpriced_models`, so the figure is recognisable as a guess.
+A model without a row, an override, or a row of which it is a dated variant (the row's id, a hyphen and an eight-digit date) is costed with the fallback price, reported with `priced: false` on its row and listed in `unpriced_models`, so the figure is recognisable as a guess.
 
 ## Identifying data
 

@@ -198,13 +198,58 @@ func TestGet_Claude5Generation(t *testing.T) {
 	}
 }
 
-// The longer prefix must win: claude-opus-5-5 is not priced as claude-opus-5.
-func TestGet_LongerPrefixWins(t *testing.T) {
+// A dated variant resolves to its own row: claude-opus-5-5-<date> is not
+// priced as claude-opus-5.
+func TestGet_DatedVariantResolvesToItsRow(t *testing.T) {
 	if p := Get("claude-opus-5-5-20260701", nil); p.Input != 4.0 {
 		t.Errorf("opus 5.5 variant priced at %f, want 4.0", p.Input)
 	}
-	if p := Get("claude-fable-5-1-x", nil); p.CacheRead != 0.25 {
+	if p := Get("claude-fable-5-1-20260901", nil); p.CacheRead != 0.25 {
 		t.Errorf("fable 5.1 variant cache read %f, want 0.25", p.CacheRead)
+	}
+}
+
+// Only a hyphen and an eight-digit date make a variant. A new minor version,
+// a context-window suffix or a free-form tag is not a variant of the shorter
+// id: it falls back to the Sonnet 4 rate and is not known, so the report
+// flags its cost as a guess.
+func TestGet_NewMinorVersionIsNotAVariant(t *testing.T) {
+	for _, model := range []string{
+		"claude-opus-5-6",
+		"claude-opus-5-6-20270101",
+		"claude-sonnet-4-7",
+		"claude-opus-4-9",
+		"claude-fable-5-1-x",
+		"claude-fable-5-1-1m",
+		"claude-haiku-5-5-2026030",
+		"claude-haiku-5-5-202603011",
+	} {
+		if Known(model, nil) {
+			t.Errorf("%s should not be known", model)
+		}
+		if p := Get(model, nil); p != DefaultPricing["claude-sonnet-4"] {
+			t.Errorf("%s should fall back to the Sonnet 4 rate, got %+v", model, p)
+		}
+	}
+}
+
+func TestDatedVariant(t *testing.T) {
+	tests := []struct {
+		model, base string
+		want        bool
+	}{
+		{"claude-opus-4-5-20251101", "claude-opus-4-5", true},
+		{"claude-3-5-sonnet-99999999", "claude-3-5-sonnet", true},
+		{"claude-opus-4-5", "claude-opus-4-5", false},
+		{"claude-opus-4-5-2025110", "claude-opus-4-5", false},
+		{"claude-opus-4-5-2025110a", "claude-opus-4-5", false},
+		{"claude-opus-4-520251101", "claude-opus-4-5", false},
+		{"claude-opus-4-5-6", "claude-opus-4-5", false},
+	}
+	for _, tt := range tests {
+		if got := datedVariant(tt.model, tt.base); got != tt.want {
+			t.Errorf("datedVariant(%q, %q) = %v, want %v", tt.model, tt.base, got, tt.want)
+		}
 	}
 }
 
