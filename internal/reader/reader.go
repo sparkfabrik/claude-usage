@@ -21,7 +21,11 @@ type UsageEntry struct {
 	InputTokens         int
 	OutputTokens        int
 	CacheCreationTokens int
-	CacheReadTokens     int
+	// CacheWrite1hTokens is the part of CacheCreationTokens written with the
+	// 1-hour TTL, from usage.cache_creation.ephemeral_1h_input_tokens; 0 when
+	// the transcript carries no breakdown.
+	CacheWrite1hTokens int
+	CacheReadTokens    int
 	// MessageID is the assistant message id from message.id. It is stable
 	// across resumed and forked sessions, where the same message reappears
 	// under a new uuid.
@@ -30,6 +34,9 @@ type UsageEntry struct {
 	// is present.
 	EntryUUID string
 	RequestID string
+	// SessionID is the session the entry belongs to: the transcript's own
+	// sessionId field, which a subagent transcript shares with the session
+	// that spawned it, or the file name when the field is absent.
 	SessionID string
 	Project   string
 }
@@ -63,8 +70,23 @@ func ProjectsPath() (string, error) {
 	return filepath.Join(home, ".claude", "projects"), nil
 }
 
-// LoadEntries loads and deduplicates usage entries from all JSONL files.
+// LoadEntries loads and deduplicates usage entries from all JSONL files. A
+// transcript that cannot be opened or read to its end is skipped with a
+// warning on stderr, so one bad file never blanks the dashboard or a reader
+// that polls every minute.
 func LoadEntries(projectsPath string, since, until *time.Time) ([]UsageEntry, error) {
+	return load(projectsPath, since, until, false)
+}
+
+// LoadEntriesStrict is LoadEntries for a one-off report: a directory that
+// cannot be listed or a transcript that cannot be opened or read to its end
+// fails the load, so the caller never prints an incomplete total as if it
+// were the whole. A missing projects directory is still an empty result.
+func LoadEntriesStrict(projectsPath string, since, until *time.Time) ([]UsageEntry, error) {
+	return load(projectsPath, since, until, true)
+}
+
+func load(projectsPath string, since, until *time.Time, strict bool) ([]UsageEntry, error) {
 	if projectsPath == "" {
 		p, err := ProjectsPath()
 		if err != nil {
@@ -81,12 +103,23 @@ func LoadEntries(projectsPath string, since, until *time.Time) ([]UsageEntry, er
 	var entries []UsageEntry
 
 	if err := filepath.WalkDir(projectsPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+		if err != nil {
+			if strict {
+				return err
+			}
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
 		sessionID := strings.TrimSuffix(d.Name(), ".jsonl")
 		project := filepath.Base(filepath.Dir(path))
-		parseFile(path, sessionID, project, since, until, seen, &entries)
+		if err := parseFile(path, sessionID, project, since, until, seen, &entries); err != nil {
+			if strict {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("walking projects directory: %w", err)
@@ -104,6 +137,7 @@ type jsonlRecord struct {
 	Timestamp json.RawMessage `json:"timestamp"`
 	UUID      string          `json:"uuid"`
 	RequestID string          `json:"requestId"`
+	SessionID string          `json:"sessionId"`
 	Message   struct {
 		ID    string `json:"id"`
 		Model string `json:"model"`
@@ -112,14 +146,20 @@ type jsonlRecord struct {
 			OutputTokens             int `json:"output_tokens"`
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreation            struct {
+				Ephemeral1h int `json:"ephemeral_1h_input_tokens"`
+			} `json:"cache_creation"`
 		} `json:"usage"`
 	} `json:"message"`
 }
 
-func parseFile(path, sessionID, project string, since, until *time.Time, seen map[string]bool, entries *[]UsageEntry) {
+// parseFile appends the usage entries of one transcript. It returns an error
+// when the file cannot be opened or read to its end (an I/O failure or a
+// line over the scanner limit); the entries read before the failure are kept.
+func parseFile(path, sessionID, project string, since, until *time.Time, seen map[string]bool, entries *[]UsageEntry) error {
 	f, err := os.Open(path)
 	if err != nil {
-		return
+		return err
 	}
 	defer f.Close()
 
@@ -143,6 +183,11 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 		if usage.InputTokens == 0 && usage.OutputTokens == 0 {
 			continue
 		}
+		// Claude Code writes "<synthetic>" for messages it produces itself,
+		// not the API; they are not usage and have no price.
+		if rec.Message.Model == "" || rec.Message.Model == "<synthetic>" {
+			continue
+		}
 
 		ts := parseTimestamp(rec.Timestamp)
 		if ts.IsZero() {
@@ -156,17 +201,36 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 			continue
 		}
 
+		// A subagent transcript lives under <session>/subagents/ and names
+		// its parent in sessionId, so its requests count toward that session
+		// instead of becoming a session of their own.
+		session := rec.SessionID
+		if session == "" {
+			session = sessionID
+		}
+
+		// The TTL breakdown never exceeds the total it splits; clamp so a
+		// malformed line cannot price more 1-hour tokens than were written.
+		write1h := usage.CacheCreation.Ephemeral1h
+		if write1h > usage.CacheCreationInputTokens {
+			write1h = usage.CacheCreationInputTokens
+		}
+		if write1h < 0 {
+			write1h = 0
+		}
+
 		entry := UsageEntry{
 			Timestamp:           ts,
 			Model:               rec.Message.Model,
 			InputTokens:         usage.InputTokens,
 			OutputTokens:        usage.OutputTokens,
 			CacheCreationTokens: usage.CacheCreationInputTokens,
+			CacheWrite1hTokens:  write1h,
 			CacheReadTokens:     usage.CacheReadInputTokens,
 			MessageID:           rec.Message.ID,
 			EntryUUID:           rec.UUID,
 			RequestID:           rec.RequestID,
-			SessionID:           sessionID,
+			SessionID:           session,
 			Project:             project,
 		}
 
@@ -182,8 +246,9 @@ func parseFile(path, sessionID, project string, since, until *time.Time, seen ma
 	}
 	// Check for scanner errors (e.g. line too long, I/O error).
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: error reading %s: %v\n", path, err)
+		return fmt.Errorf("reading %s: %w", path, err)
 	}
+	return nil
 }
 
 func parseTimestamp(raw json.RawMessage) time.Time {

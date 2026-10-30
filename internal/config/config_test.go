@@ -148,7 +148,19 @@ pricing:
     input: 5.0
     output: 20.0
     cache_write: 6.0
+    cache_write_1h: 9.6
     cache_read: 0.5
+  claude-haiku-5-5:
+    input: 0.1
+    output: 0.5
+    cache_write: 0.125
+    cache_read: 0.01
+    long_prompt:
+      threshold: 100000
+      input: 0.5
+      output: 2.5
+      cache_write: 0.625
+      cache_read: 0.05
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -156,8 +168,8 @@ pricing:
 
 	cfg := Load(path)
 
-	if len(cfg.Pricing) != 1 {
-		t.Fatalf("Pricing len = %d, want 1", len(cfg.Pricing))
+	if len(cfg.Pricing) != 2 {
+		t.Fatalf("Pricing len = %d, want 2", len(cfg.Pricing))
 	}
 	p, ok := cfg.Pricing["claude-sonnet-4"]
 	if !ok {
@@ -168,6 +180,19 @@ pricing:
 	}
 	if p.Output != 20.0 {
 		t.Errorf("Output = %f, want 20.0", p.Output)
+	}
+	if p.CacheWrite != 6.0 || p.CacheWrite1h != 9.6 || p.CacheRead != 0.5 {
+		t.Errorf("cache rates = %v/%v/%v, want 6.0/9.6/0.5", p.CacheWrite, p.CacheWrite1h, p.CacheRead)
+	}
+	if p.LongPrompt != nil {
+		t.Errorf("sonnet override should have no long_prompt, got %+v", p.LongPrompt)
+	}
+	h := cfg.Pricing["claude-haiku-5-5"]
+	if h.LongPrompt == nil {
+		t.Fatal("haiku override should carry long_prompt")
+	}
+	if lp := h.LongPrompt; lp.Threshold != 100000 || lp.Input != 0.5 || lp.Output != 2.5 || lp.CacheWrite != 0.625 || lp.CacheRead != 0.05 || lp.CacheWrite1h != 0 {
+		t.Errorf("long_prompt = %+v", lp)
 	}
 }
 

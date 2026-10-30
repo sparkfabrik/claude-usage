@@ -409,10 +409,11 @@ func TestBuildPricingOverrides_Populated(t *testing.T) {
 	cfg := &config.Config{
 		Pricing: map[string]config.ModelPricing{
 			"claude-sonnet-4": {
-				Input:      3.0,
-				Output:     15.0,
-				CacheWrite: 3.75,
-				CacheRead:  0.30,
+				Input:        3.0,
+				Output:       15.0,
+				CacheWrite:   3.75,
+				CacheWrite1h: 6.0,
+				CacheRead:    0.30,
 			},
 		},
 	}
@@ -430,10 +431,11 @@ func TestBuildPricingOverrides_Populated(t *testing.T) {
 		t.Fatal("expected claude-sonnet-4 in overrides")
 	}
 	want := pricing.ModelPrice{
-		Input:      3.0,
-		Output:     15.0,
-		CacheWrite: 3.75,
-		CacheRead:  0.30,
+		Input:        3.0,
+		Output:       15.0,
+		CacheWrite:   3.75,
+		CacheWrite1h: 6.0,
+		CacheRead:    0.30,
 	}
 	if mp != want {
 		t.Errorf("got %+v, want %+v", mp, want)
@@ -1728,5 +1730,222 @@ func TestPrintConfigFooter_DefaultsNoReference(t *testing.T) {
 	}
 	if strings.Contains(out, "Reference file:") {
 		t.Errorf("did not expect Reference file line, got:\n%s", out)
+	}
+}
+
+// --- --report ---
+
+func TestReportConflict(t *testing.T) {
+	changed := func(set ...string) func(string) bool {
+		return func(name string) bool { return slices.Contains(set, name) }
+	}
+	if got := reportConflict(changed()); got != "" {
+		t.Errorf("no flags: got %q, want empty", got)
+	}
+	if got := reportConflict(changed("no-poll", "config")); got != "" {
+		t.Errorf("harmless flags: got %q, want empty", got)
+	}
+	for _, name := range []string{"status", "poll-only", "period", "force-poll", "no-cost"} {
+		if got := reportConflict(changed(name)); got != name {
+			t.Errorf("flag %s: got %q, want %q", name, got, name)
+		}
+	}
+}
+
+func TestRunReport_UnknownPeriod(t *testing.T) {
+	var buf bytes.Buffer
+	err := runReport(&buf, config.Default(), t.TempDir(), "2w")
+	if err == nil || !strings.Contains(err.Error(), "unknown period") {
+		t.Fatalf("expected unknown period error, got %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("nothing should be written on error, got %q", buf.String())
+	}
+}
+
+func TestRunReport_EmptyProjects(t *testing.T) {
+	var buf bytes.Buffer
+	if err := runReport(&buf, config.Default(), t.TempDir(), "all"); err != nil {
+		t.Fatalf("runReport: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, buf.String())
+	}
+	if got["schema"] != "claude-usage/report/1" {
+		t.Errorf("schema = %v", got["schema"])
+	}
+	totals := got["totals"].(map[string]any)
+	if totals["active_days"].(float64) != 0 || totals["sessions"].(float64) != 0 {
+		t.Errorf("empty projects should give zeros, got %v", totals)
+	}
+	window := got["window"].(map[string]any)
+	if _, ok := window["from"]; ok || window["label"] != "all" {
+		t.Errorf("all with no transcripts should have no window.from, got %v", window)
+	}
+	if !strings.HasSuffix(buf.String(), "\n") {
+		t.Error("output should end with a newline")
+	}
+}
+
+// The fixture carries identifiers with the shape of real ones: a project
+// directory named after a home path, UUID session ids, message and request
+// ids, a subagent file. None of them may reach the output.
+func TestRunReport_AggregatesTranscripts(t *testing.T) {
+	const (
+		project   = "-Users-jane-repos-secret-project"
+		session1  = "7d3f2a9c-5b1e-4c8d-9f0a-1b2c3d4e5f60"
+		session2  = "0a1b2c3d-4e5f-4a6b-8c7d-9e8f7a6b5c4d"
+		agentFile = "agent-a1b2c3d4e5"
+		msg1      = "msg_01HXK3YV9Q2W8R7T6S5P4N3M2L"
+		msg2      = "msg_01JABCDEF123456789GHJKLMNP"
+		msg3      = "msg_01KZYXWVUTSRQPONMLKJHGFEDC"
+		req1      = "req_011CPq9dXxLq8vYz2W3E4R5T6Y"
+		req2      = "req_011CQaBcDeFgHiJkLmNoPqRsT7"
+		req3      = "req_011CRzYxWvUtSrQpOnMlKjIhG8"
+	)
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, project)
+	subDir := filepath.Join(projectDir, session1, "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	line := func(ts time.Time, uuid, req, session, msg string, input int) string {
+		return fmt.Sprintf(`{"type":"assistant","timestamp":"%s","uuid":"%s","requestId":"%s","sessionId":"%s","message":{"id":"%s","model":"claude-opus-5-5","usage":{"input_tokens":%d,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}`+"\n",
+			ts.Format(time.RFC3339Nano), uuid, req, session, msg, input)
+	}
+	main := line(now.Add(-2*time.Hour), "11111111-2222-4333-8444-555555555555", req1, session1, msg1, 1000) +
+		line(now.Add(-time.Hour), "66666666-7777-4888-8999-000000000000", req2, session2, msg2, 2000)
+	sub := line(now.Add(-90*time.Minute), "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", req3, session1, msg3, 1000)
+	if err := os.WriteFile(filepath.Join(projectDir, session1+".jsonl"), []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, agentFile+".jsonl"), []byte(sub), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runReport(&buf, config.Default(), dir, "7d"); err != nil {
+		t.Fatalf("runReport: %v", err)
+	}
+	var got struct {
+		Window struct{ Label string } `json:"window"`
+		Totals struct {
+			Tokens   struct{ Input, Output, Total int }
+			Sessions int
+			Requests int
+		} `json:"totals"`
+		Models []struct {
+			ID     string `json:"id"`
+			Priced bool   `json:"priced"`
+		} `json:"models"`
+		Sessions struct {
+			Count int
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, buf.String())
+	}
+	if got.Window.Label != "7d" {
+		t.Errorf("window label = %q, want 7d", got.Window.Label)
+	}
+	if got.Totals.Tokens.Input != 4000 || got.Totals.Tokens.Output != 300 || got.Totals.Tokens.Total != 4300 {
+		t.Errorf("totals = %+v", got.Totals.Tokens)
+	}
+	// Three requests in two sessions: the subagent file belongs to session1.
+	if got.Totals.Sessions != 2 || got.Sessions.Count != 2 || got.Totals.Requests != 3 {
+		t.Errorf("sessions/requests = %+v / %+v", got.Totals, got.Sessions)
+	}
+	if len(got.Models) != 1 || got.Models[0].ID != "claude-opus-5-5" || !got.Models[0].Priced {
+		t.Errorf("models = %+v", got.Models)
+	}
+	for _, id := range []string{
+		project, "jane", "secret-project", dir,
+		session1, session2, agentFile,
+		msg1, msg2, msg3, req1, req2, req3,
+		"11111111-2222", "66666666-7777", "aaaaaaaa-bbbb",
+	} {
+		if strings.Contains(buf.String(), id) {
+			t.Errorf("report must not contain the identifier %q:\n%s", id, buf.String())
+		}
+	}
+}
+
+func TestBuildPricingOverrides_LongPrompt(t *testing.T) {
+	cfg := &config.Config{
+		Pricing: map[string]config.ModelPricing{
+			"claude-haiku-5-5": {
+				Input: 0.1, Output: 0.5, CacheWrite: 0.125, CacheRead: 0.01,
+				LongPrompt: &config.LongPromptPricing{Threshold: 100000, Input: 0.5, Output: 2.5, CacheWrite: 0.625, CacheWrite1h: 1.0, CacheRead: 0.05},
+			},
+		},
+	}
+	got := buildPricingOverrides(cfg)["claude-haiku-5-5"]
+	if got.LongPrompt == nil {
+		t.Fatal("long_prompt should be mapped")
+	}
+	wantTier := pricing.ModelPrice{Input: 0.5, Output: 2.5, CacheWrite: 0.625, CacheWrite1h: 1.0, CacheRead: 0.05}
+	if got.LongPrompt.Threshold != 100000 || got.LongPrompt.Price != wantTier {
+		t.Errorf("tier = %+v, want threshold 100000 and %+v", got.LongPrompt, wantTier)
+	}
+}
+
+// The report must not print an incomplete total: a transcript that cannot
+// be read fails the command, with nothing on stdout.
+func TestRunReport_UnreadableTranscriptFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "locked.jsonl"), []byte(line), 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	err := runReport(&buf, config.Default(), dir, "all")
+	if err == nil || !strings.Contains(err.Error(), "loading usage data") {
+		t.Fatalf("expected a loading error, got %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("nothing should be written on error, got %q", buf.String())
+	}
+}
+
+// --report= (an unset shell variable) must fail on the empty period, never
+// fall through to the dashboard. The binary is run with a config directory
+// that holds no credentials and --no-poll, so a fall-through would print the
+// dashboard rather than reach the network.
+func TestCLI_ReportEmptyPeriodIsRejected(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	binary := buildTestBinary(t)
+
+	for _, args := range [][]string{
+		{"--report=", "--no-poll"},
+		{"--report", "", "--no-poll"},
+	} {
+		cmd := exec.Command(binary, args...)
+		cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+t.TempDir(), "XDG_CACHE_HOME="+t.TempDir())
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err == nil {
+			t.Errorf("%v: expected exit 1, got success with stdout %q", args, stdout.String())
+			continue
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("%v: nothing should be printed on stdout, got %q", args, stdout.String())
+		}
+		if !strings.Contains(stderr.String(), `unknown period ""`) {
+			t.Errorf("%v: stderr should name the empty period, got %q", args, stderr.String())
+		}
 	}
 }

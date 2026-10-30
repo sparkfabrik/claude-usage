@@ -38,9 +38,25 @@ cache:
   # path: /custom/path/quota.json
 
 # Override model pricing (per 1M tokens, USD)
+# cache_write is the 5-minute cache write rate, cache_write_1h the 1-hour one
+# (1.6x cache_write when omitted or 0). long_prompt, optional, is the rate set a
+# request pays when its prompt (input plus cache reads and writes) is over
+# threshold tokens; an override without it has one flat rate.
 # pricing:
 #   claude-opus-4:
 #     input: 15.00
 #     output: 75.00
 #     cache_write: 18.75
+#     cache_write_1h: 30.00
 #     cache_read: 1.50
+#   claude-haiku-5-5:
+#     input: 0.10
+#     output: 0.50
+#     cache_write: 0.125
+#     cache_read: 0.01
+#     long_prompt:
+#       threshold: 100000
+#       input: 0.50
+#       output: 2.50
+#       cache_write: 0.625
+#       cache_read: 0.05

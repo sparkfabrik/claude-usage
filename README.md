@@ -45,6 +45,7 @@ Token and cost data is parsed from Claude Code's local JSONL conversation logs. 
 - **Model-scoped limits** — see "Opus Weekly" or "Fable Weekly" separately from the overall weekly window
 - **Single static binary** — no runtime dependencies, no Python, no venv
 - **Configurable** — YAML config for polling interval, display periods, cost visibility, color thresholds, model pricing overrides
+- **JSON usage report** — `--report 30d` prints tokens, cost and session statistics for a period as one JSON document, offline and without identifying data
 
 ## Requirements
 
@@ -170,6 +171,9 @@ claude-usage --status --force-poll
 claude-usage --status --no-poll
 # The --status JSON includes an "auth" field: "valid" | "expired" | "missing" | "unknown"
 
+# JSON usage report for a period, offline (see "JSON usage report" below)
+claude-usage --report 30d
+
 # Show version info
 claude-usage --version
 
@@ -221,6 +225,70 @@ Displays a glyph + percentages: `◑ 5h:42% 7d:67%`
 The tray does not start on its own. Launch it with `claude-usage-tray`, or install with `--tray` / `CLAUDE_USAGE_TRAY=1` to start and stop it with Claude Code sessions.
 
 Menu bar item showing "C:X% W:Y%". Click for dropdown with reset times, auth state (shown when not valid), "Refresh Now", and "Quit".
+
+## JSON usage report
+
+`claude-usage --report <period>` prints one JSON document with the usage of a period and exits. It reads the local transcripts and the price table only: no API call, no credentials, no cache. The period labels are the ones of `--period`: `today`, `7d`, `30d`, `all`. The flag cannot be combined with `--status`, `--poll-only`, `--period`, `--force-poll` or `--no-cost`; `--config` is honoured for pricing overrides.
+
+```bash
+claude-usage --report 30d > usage-30d.json
+```
+
+```json
+{
+  "schema": "claude-usage/report/1",
+  "version": "v0.9.0",
+  "generated_at": "2026-10-29T15:15:36Z",
+  "window": {
+    "label": "30d",
+    "from": "2026-09-29T15:15:36Z",
+    "to": "2026-10-29T15:15:36Z",
+    "timezone": "CET",
+    "utc_offset": "+01:00"
+  },
+  "cost_basis": "list prices, cache writes at their recorded TTL rate",
+  "pricing": "bundled",
+  "totals": {
+    "tokens": {
+      "input": 193290,
+      "output": 8342708,
+      "cache_write": 56185967,
+      "cache_write_1h": 31206114,
+      "cache_read": 3329432006,
+      "total": 3394153971
+    },
+    "cost_usd": 1692.08,
+    "requests": 10116,
+    "sessions": 62,
+    "active_days": 23
+  },
+  "models": [
+    {
+      "id": "claude-fable-5-1",
+      "name": "Fable 5.1",
+      "tokens": {
+        "input": 1,
+        "output": 1,
+        "cache_write": 1,
+        "cache_write_1h": 1,
+        "cache_read": 1,
+        "total": 4
+      },
+      "cost_usd": 1324.5,
+      "requests": 7000,
+      "priced": true
+    }
+  ],
+  "sessions": { "count": 62, "cost_median_usd": 7.07, "cost_p90_usd": 81.5 }
+}
+```
+
+- `window` — the period is rolling from the moment the command runs, like `--period`; `from` and `to` are UTC. For `all`, which has no lower bound, `from` is the earliest request found in the transcripts, and it is absent when there are none. `active_days` counts local calendar days, like the dashboard, so `timezone` and `utc_offset` say which calendar was used.
+- `totals` and `models[]` — tokens by type, cost at list prices, number of requests (assistant messages) and, for the totals, sessions and active days. `cache_write_1h` is the part of `cache_write` written with the 1-hour cache, which costs more; `total` counts it once. Models are listed heaviest first; `id` is the identifier found in the transcripts, `name` its display form.
+- `sessions` — a session is a transcript file together with the subagent transcripts it spawned; `cost_median_usd` and `cost_p90_usd` are computed on the cost of each session (the p90 is the nearest-rank percentile). Both are `0` when the period has no sessions.
+- `priced` and `unpriced_models` — a model missing from the price table is costed with the fallback price (the Sonnet 4 rate) and flagged, so the figure is recognisable as a guess; add the model under `pricing:` in the config to price it, which sets `pricing` to `config`.
+- The document carries no project path, session id or other identifying field. The report covers what is still on disk: Claude Code keeps transcripts for `cleanupPeriodDays`, 30 by default.
+- The command fails, with nothing on stdout, when a transcript cannot be opened or read to its end: a total that silently leaves a file out would be mistaken for the whole. The dashboard and `--status` keep skipping such files with a warning.
 
 ## Configuration
 
@@ -281,6 +349,8 @@ cache:
 ## Cost note
 
 Cost values shown are **API-equivalent estimates** based on token counts and published pricing. If you're on a Claude subscription (Pro/Team/Enterprise), usage is included in your plan — the costs shown represent what the equivalent API usage would cost, not actual charges.
+
+Cache writes are priced at the rate of the cache lifetime each request used: Claude Code records the split between 5-minute writes (1.25x input) and 1-hour writes (2x input) in every transcript line, and the main conversation on a subscription uses the 1-hour cache. Haiku 5.5 is priced by prompt length, as on the pricing page: a request whose prompt (input plus cache reads and writes) is over 100K tokens pays the higher rates on every token. The built-in table follows the [Anthropic pricing page](https://platform.claude.com/docs/en/about-claude/pricing); a model that is not in it is priced at the Sonnet 4 rate and reported as unpriced by `--report`. Only a dated variant of a known id (`claude-opus-4-5-20251101`) resolves to that id's row; a new minor version is unpriced until the table has it. A pricing override in the config file may set `cache_write_1h` (1.6x `cache_write` when left out or `0`) and an optional `long_prompt` block with a `threshold` and its own rates; an override without the block has one flat rate.
 
 ## License
 

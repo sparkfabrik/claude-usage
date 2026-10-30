@@ -239,3 +239,27 @@ func TestSummarizeByModel(t *testing.T) {
 		t.Errorf("sonnet MessageCount = %d, want 2", sonnet.MessageCount)
 	}
 }
+
+// The 1-hour part of the cache writes is summed on its own and priced at its
+// own rate.
+func TestAggregate_CacheWrite1h(t *testing.T) {
+	now := time.Now()
+	entries := []reader.UsageEntry{
+		{Timestamp: now, Model: "claude-fable-5-1", SessionID: "s", CacheCreationTokens: 1_000_000, CacheWrite1hTokens: 1_000_000},
+		{Timestamp: now, Model: "claude-fable-5-1", SessionID: "s", CacheCreationTokens: 1_000_000, CacheWrite1hTokens: 0},
+	}
+	s := Aggregate(entries, "test", nil)
+	if s.TotalCacheWriteTokens != 2_000_000 {
+		t.Errorf("TotalCacheWriteTokens = %d, want 2000000", s.TotalCacheWriteTokens)
+	}
+	if s.TotalCacheWrite1hTokens != 1_000_000 {
+		t.Errorf("TotalCacheWrite1hTokens = %d, want 1000000", s.TotalCacheWrite1hTokens)
+	}
+	// 1M at the 1-hour rate (20) plus 1M at the 5-minute rate (12.5).
+	if want := 32.5; s.TotalCostUSD < want-1e-9 || s.TotalCostUSD > want+1e-9 {
+		t.Errorf("TotalCostUSD = %f, want %f", s.TotalCostUSD, want)
+	}
+	if s.TotalTokens() != 2_000_000 {
+		t.Errorf("TotalTokens = %d, want 2000000: the 1-hour part is not counted twice", s.TotalTokens())
+	}
+}

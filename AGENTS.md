@@ -114,12 +114,18 @@ The first ten fields are the original contract and are always present, so reader
 
 Flag combinations: `--status` (cached or poll), `--status --force-poll` (always poll), `--status --no-poll` (cache only).
 
+### `--report` JSON
+
+> **Source of truth:** the `Report` struct in `internal/report/report.go` defines the schema; the README section "JSON usage report" documents it. Keep both in step when the struct changes.
+
+`--report <period>` (`today`, `7d`, `30d`, `all`, the `--period` labels) prints one JSON document and exits: tokens by type and cost in total and per model, request count, session count with median and p90 cost per session, active days, and the window. It reads transcripts and the price table only: no credentials, no cache, no network, and it is dispatched before `auth.Load()` on the flag's presence (`--report=` fails on the empty period). It reads with `reader.LoadEntriesStrict`, so an unreadable transcript fails the command instead of shrinking the total; every other mode keeps the lenient `reader.LoadEntries`. It rejects `--status`, `--poll-only`, `--period`, `--force-poll` and `--no-cost`. The document never contains a project path, a session id or any other identifying field. `schema` is `claude-usage/report/1` and changes only on a rename or removal.
+
 ### Project Structure
 
 > **Keep this up to date.** When adding, removing, or renaming packages/files, update this tree.
 
 ```
-cmd/claude-usage/         CLI entry point (main.go, main_test.go, sgr_test.go: SGR escape test helpers)
+cmd/claude-usage/         CLI entry point (main.go, main_test.go, sgr_test.go: SGR escape test helpers); modes: dashboard, --status, --poll-only, --report
 internal/
   analyzer/               Token aggregation, time periods, per-model breakdown
   auth/                   OAuth credential loading from ~/.claude/
@@ -129,7 +135,8 @@ internal/
   poller/                 1-token Haiku API polling, rate-limit header parsing (fallback source)
   pricing/                Per-model pricing table with prefix fallback
   process/                Claude Code process detection (pgrep-based, cross-platform)
-  reader/                 JSONL conversation log parser (filepath.WalkDir)
+  reader/                 JSONL conversation log parser (filepath.WalkDir); sessions keyed on the transcript's sessionId, so subagent files count toward their parent
+  report/                 --report aggregation: tokens and cost per period and model, session cost percentiles, active days
   stats/                  Local transcript aggregation (per day, per model) with a disk cache
   usage/                  OAuth usage endpoint client, window normalization, fallback orchestration
 readers/

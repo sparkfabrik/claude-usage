@@ -508,3 +508,239 @@ func createTestProjectsDir(t *testing.T) string {
 	}
 	return dir
 }
+
+// A subagent transcript lives under <session>/subagents/ and carries the
+// parent session id in every line, so its requests belong to that session.
+func TestLoadEntries_SubagentKeyedOnParentSession(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	subDir := filepath.Join(projectDir, "sess-1", "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	parent := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","sessionId":"sess-1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	child := `{"type":"assistant","timestamp":"2026-08-25T10:01:00Z","uuid":"u2","requestId":"r2","sessionId":"sess-1","message":{"id":"m2","model":"claude-opus-5-5","usage":{"input_tokens":20,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "sess-1.jsonl"), []byte(parent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "agent-abc.jsonl"), []byte(child), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	for _, e := range entries {
+		if e.SessionID != "sess-1" {
+			t.Errorf("SessionID = %q, want sess-1 for both the session and its subagent", e.SessionID)
+		}
+	}
+}
+
+// Lines without a sessionId field keep the file name as the session, as
+// older transcripts do.
+func TestLoadEntries_SessionFallsBackToFileName(t *testing.T) {
+	dir := createTestProjectsDir(t)
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	for _, e := range entries {
+		if e.SessionID != "session-abc" {
+			t.Errorf("SessionID = %q, want session-abc", e.SessionID)
+		}
+	}
+}
+
+// Claude Code writes "<synthetic>" for messages it produces itself; they are
+// not API usage and must not become a model row.
+func TestLoadEntries_SkipsSyntheticAndEmptyModel(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonl := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"<synthetic>","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-08-25T10:00:01Z","uuid":"u2","requestId":"r2","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-08-25T10:00:02Z","uuid":"u3","requestId":"r3","message":{"id":"m3","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "s.jsonl"), []byte(jsonl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Model != "claude-opus-5-5" {
+		t.Errorf("want only the real model entry, got %+v", entries)
+	}
+}
+
+// Newer transcripts add a usage.iterations list next to the top-level
+// counts. The top-level fields are the bill for the line and are what the
+// reader takes; the list is ignored.
+func TestLoadEntries_TopLevelUsageWithIterations(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonl := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-fable-5-1","usage":{"input_tokens":2,"cache_creation_input_tokens":26336,"cache_read_input_tokens":29114,"output_tokens":269,"cache_creation":{"ephemeral_1h_input_tokens":26336,"ephemeral_5m_input_tokens":0},"iterations":[{"input_tokens":2,"output_tokens":269,"cache_read_input_tokens":29114,"cache_creation_input_tokens":26336,"type":"message"}]}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "s.jsonl"), []byte(jsonl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.InputTokens != 2 || e.OutputTokens != 269 || e.CacheCreationTokens != 26336 || e.CacheReadTokens != 29114 {
+		t.Errorf("tokens = %d/%d/%d/%d, want 2/269/26336/29114", e.InputTokens, e.OutputTokens, e.CacheCreationTokens, e.CacheReadTokens)
+	}
+	if e.CacheWrite1hTokens != 26336 {
+		t.Errorf("CacheWrite1hTokens = %d, want 26336 from cache_creation.ephemeral_1h_input_tokens", e.CacheWrite1hTokens)
+	}
+}
+
+// The cache_creation breakdown splits cache writes by TTL. A line without it
+// is read as all 5-minute writes; a breakdown larger than the total is
+// clamped to the total.
+func TestLoadEntries_CacheWrite1hBreakdown(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonl := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-08-25T10:00:01Z","uuid":"u2","requestId":"r2","message":{"id":"m2","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":300,"ephemeral_1h_input_tokens":700}}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-08-25T10:00:02Z","uuid":"u3","requestId":"r3","message":{"id":"m3","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":5000}}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "s.jsonl"), []byte(jsonl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("got %d entries, want 3", len(entries))
+	}
+	want := []int{0, 700, 1000}
+	for i, e := range entries {
+		if e.CacheCreationTokens != 1000 {
+			t.Errorf("entry %d: CacheCreationTokens = %d, want 1000", i, e.CacheCreationTokens)
+		}
+		if e.CacheWrite1hTokens != want[i] {
+			t.Errorf("entry %d: CacheWrite1hTokens = %d, want %d", i, e.CacheWrite1hTokens, want[i])
+		}
+	}
+}
+
+// A transcript that cannot be opened is skipped by LoadEntries, with the
+// readable ones still returned, and fails LoadEntriesStrict.
+func TestLoadEntries_UnreadableTranscript(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "ok.jsonl"), []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(projectDir, "locked.jsonl")
+	if err := os.WriteFile(locked, []byte(line), 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries should skip the unreadable file, got %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("LoadEntries returned %d entries, want the 1 readable one", len(entries))
+	}
+
+	entries, err = LoadEntriesStrict(dir, nil, nil)
+	if err == nil {
+		t.Fatal("LoadEntriesStrict should fail on an unreadable transcript")
+	}
+	if !strings.Contains(err.Error(), "locked.jsonl") {
+		t.Errorf("error should name the file, got %v", err)
+	}
+	if entries != nil {
+		t.Errorf("no entries should be returned with the error, got %d", len(entries))
+	}
+}
+
+// A line over the scanner limit stops the file. LoadEntries keeps what was
+// read before it and warns; LoadEntriesStrict fails, because the rest of the
+// file is unknown.
+func TestLoadEntries_LineOverLimit(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"assistant","timestamp":"2026-08-25T10:00:00Z","uuid":"u1","requestId":"r1","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	// One good line, then a line past the 10MB scanner buffer.
+	huge := `{"type":"assistant","pad":"` + strings.Repeat("x", 10*1024*1024+1) + `"}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "s.jsonl"), []byte(line+huge+line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := LoadEntries(dir, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadEntries should tolerate the long line, got %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("LoadEntries returned %d entries, want the 1 read before the long line", len(entries))
+	}
+
+	if _, err := LoadEntriesStrict(dir, nil, nil); err == nil || !strings.Contains(err.Error(), "s.jsonl") {
+		t.Errorf("LoadEntriesStrict should fail naming the file, got %v", err)
+	}
+}
+
+// Both loaders treat a missing projects directory as no usage, not an error.
+func TestLoadEntriesStrict_MissingDirectory(t *testing.T) {
+	entries, err := LoadEntriesStrict(filepath.Join(t.TempDir(), "absent"), nil, nil)
+	if err != nil || entries != nil {
+		t.Errorf("got (%v, %v), want (nil, nil)", entries, err)
+	}
+}
+
+// A directory that cannot be listed fails the strict loader only.
+func TestLoadEntriesStrict_UnlistableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	dir := t.TempDir()
+	closed := filepath.Join(dir, "closed")
+	if err := os.MkdirAll(closed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(closed, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o755) })
+
+	if _, err := LoadEntries(dir, nil, nil); err != nil {
+		t.Errorf("LoadEntries should skip the directory, got %v", err)
+	}
+	if _, err := LoadEntriesStrict(dir, nil, nil); err == nil {
+		t.Error("LoadEntriesStrict should fail on a directory it cannot list")
+	}
+}
