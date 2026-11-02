@@ -135,7 +135,7 @@ bash install.sh
    - **GNOME** → symlinks the shell extension, prints enable command
    - **KDE** → installs plasmoid via `kpackagetool6`, prints widget instructions
    - **Waybar** → symlinks the module script, prints config snippet
-   - **macOS** → installs the tray binary, prints launch instructions; registers the auto-start session hooks only with `--tray` / `CLAUDE_USAGE_TRAY=1`, and removes them otherwise
+   - **macOS** → installs the tray binary, prints launch instructions; registers the auto-start session hooks only with `--tray` / `CLAUDE_USAGE_TRAY=1`, and removes them otherwise, also with `--no-reader`
 4. Symlinks the terminal statusline script (always), but only registers it in `~/.claude/settings.json` when `--statusline` / `CLAUDE_USAGE_STATUSLINE=1` is given
 
 ## Usage
