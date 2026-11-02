@@ -377,6 +377,12 @@ fi
 SETTINGS="${HOME}/.claude/settings.json"
 READER="none"
 
+# Tray auto-start is opt-in: drop hooks left by earlier installs, also when
+# --no-reader skips the reader wiring below.
+if [ "${OS}" = "darwin" ] && [ "${INSTALL_TRAY}" != "1" ]; then
+  remove_session_hooks
+fi
+
 if [ "${INSTALL_READER}" = "0" ]; then
   READER="skipped"
   echo ""
@@ -396,8 +402,6 @@ fi
 case "${READER}" in
   macos)
     if [ "${INSTALL_TRAY}" != "1" ]; then
-      # Tray auto-start is opt-in: drop hooks left by earlier installs.
-      remove_session_hooks
       echo ""
       echo "macOS tray binary installed but not auto-started."
       echo "  Launch it manually: claude-usage-tray"
