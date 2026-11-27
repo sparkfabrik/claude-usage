@@ -18,7 +18,7 @@ The raw endpoint response observed on 2026-11-27 carries the flat buckets as flo
 
 ## Decisions
 
-**An ambiguous payload is percent-scaled, unless a value strictly between 0 and 1 proves fractions.** Every observed payload is percent-scaled, and an account at a few percent is common, while a fraction-scaled account with every window at exactly 0% or 100% has never been observed. Only a fraction-scaled payload can carry a value strictly between 0 and 1 when no value exceeds 1, so such a value stays decisive.
+**An ambiguous payload is percent-scaled, unless a value strictly between 0 and 1 proves fractions.** Every observed payload is percent-scaled, and an account at a few percent is common, while a fraction-scaled account with every window at exactly 0% or 100% has never been observed. A value strictly between 0 and 1 with no value above 1 is still taken as proof of fractions. This assumes the endpoint reports whole percentages, as every observed payload does; a fractional percentage below 1 would break it (see Risks).
 
 Alternatives considered:
 
