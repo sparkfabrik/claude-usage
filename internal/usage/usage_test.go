@@ -112,6 +112,93 @@ func TestParseResponseScopedEntriesDriveScale(t *testing.T) {
 	}
 }
 
+// The scale scenarios of the usage-source spec, centred on payloads holding
+// only 0 and 1, which detectPercentScale reads as percentages.
+func TestParseResponseAmbiguousScale(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want map[string]float64
+	}{
+		{
+			// The shape the endpoint sends: floats in the flat buckets,
+			// integers in the scoped entries.
+			name: "session at 1 and the rest at 0",
+			body: `{
+				"five_hour": {"utilization": 1.0},
+				"seven_day": {"utilization": 0.0},
+				"limits": [
+					{"kind": "session", "percent": 1},
+					{"kind": "weekly_scoped", "percent": 0, "scope": {"model": {"display_name": "Fable"}}}
+				]
+			}`,
+			want: map[string]float64{cache.WindowSession: 0.01, cache.WindowWeekly: 0, "fable:weekly": 0},
+		},
+		{
+			name: "every window at 1",
+			body: `{"five_hour": {"utilization": 1.0}, "seven_day": {"utilization": 1.0}}`,
+			want: map[string]float64{cache.WindowSession: 0.01, cache.WindowWeekly: 0.01},
+		},
+		{
+			name: "only scoped entries, every one at 1",
+			body: `{
+				"limits": [
+					{"kind": "session", "percent": 1, "scope": {"model": {"display_name": "Fable"}}},
+					{"kind": "weekly_scoped", "percent": 1, "scope": {"model": {"display_name": "Fable"}}}
+				]
+			}`,
+			want: map[string]float64{"fable:session": 0.01, "fable:weekly": 0.01},
+		},
+		{
+			name: "a true fraction next to 1",
+			body: `{"five_hour": {"utilization": 0.37}, "seven_day": {"utilization": 1.0}}`,
+			want: map[string]float64{cache.WindowSession: 0.37, cache.WindowWeekly: 1},
+		},
+		{
+			name: "a percentage above 1 next to a fractional percent",
+			body: `{"five_hour": {"utilization": 42.0}, "seven_day": {"utilization": 0.5}}`,
+			want: map[string]float64{cache.WindowSession: 0.42, cache.WindowWeekly: 0.005},
+		},
+		{
+			// Null, negative and unparseable values take no part in the
+			// decision, so the lone 1 is still read as one percent.
+			name: "null, negative and unparseable values are ignored",
+			body: `{
+				"five_hour": {"utilization": 1.0},
+				"seven_day": {"utilization": null},
+				"limits": [
+					{"kind": "weekly_scoped", "percent": -5, "scope": {"model": {"display_name": "Fable"}}},
+					{"kind": "session", "percent": "n/a", "scope": {"model": {"display_name": "Opus"}}}
+				]
+			}`,
+			want: map[string]float64{cache.WindowSession: 0.01, cache.WindowWeekly: 0, "fable:weekly": 0, "opus:session": 0},
+		},
+		{
+			name: "every window at 0",
+			body: `{"five_hour": {"utilization": 0.0}, "seven_day": {"utilization": 0}}`,
+			want: map[string]float64{cache.WindowSession: 0, cache.WindowWeekly: 0},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			windows, err := ParseResponse([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("ParseResponse: %v", err)
+			}
+			for key, want := range tc.want {
+				w, ok := findWindow(windows, key)
+				if !ok {
+					t.Fatalf("window %q missing", key)
+				}
+				if w.Utilization != want {
+					t.Errorf("%s utilization = %v, want %v", key, w.Utilization, want)
+				}
+			}
+		})
+	}
+}
+
 func TestParseResponseModelScopedWindows(t *testing.T) {
 	body := []byte(`{
 		"five_hour": {"utilization": 0.0, "resets_at": "2026-08-25T09:30:00Z"},
