@@ -199,10 +199,9 @@ func windowName(kind string) string {
 // consistent but varies between accounts, and deciding per value would render
 // a genuine 1.0% as 100%.
 //
-// Any value above 1 proves percentages. Otherwise only a value strictly
-// between 0 and 1 proves fractions: a payload holding nothing but 0 and 1 is
-// read as percent-scaled, because an account at 1% is common and a
-// fraction-scaled account with every window at exactly 0% or 100% is not.
+// A value above 1 proves percentages and a value strictly between 0 and 1
+// proves fractions. With neither, as when an account sits at 1%, the payload
+// is read as percentages.
 func detectPercentScale(p payload) bool {
 	raw := make([]json.RawMessage, 0, 3+len(p.Limits))
 	for _, b := range []*bucket{p.FiveHour, p.SevenDay, p.SevenDayOAuthApps} {
@@ -217,27 +216,26 @@ func detectPercentScale(p payload) bool {
 	fraction := false
 	for _, r := range raw {
 		v, ok := parseNumber(r)
-		if !ok {
-			continue
-		}
-		if v > 1 {
+		switch {
+		case !ok:
+		case v > 1:
 			return true
-		}
-		if v > 0 && v < 1 {
+		case v > 0 && v < 1:
 			fraction = true
 		}
 	}
 	return !fraction
 }
 
-// normalizeUtilization converts a raw utilization to a fraction in [0,1].
-// A negative or unparseable value yields 0.
+// normalizeUtilization converts a raw utilization to a fraction in [0,1],
+// using the scale decided for the whole payload. A negative or unparseable
+// value yields 0.
 func normalizeUtilization(raw json.RawMessage, percentScale bool) float64 {
 	v, ok := parseNumber(raw)
 	if !ok || v < 0 || math.IsNaN(v) {
 		return 0
 	}
-	if percentScale || v > 1 {
+	if percentScale {
 		v /= 100
 	}
 	if v > 1 {
