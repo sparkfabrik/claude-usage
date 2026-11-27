@@ -112,9 +112,8 @@ func TestParseResponseScopedEntriesDriveScale(t *testing.T) {
 	}
 }
 
-// A payload holding only 0 and 1 is ambiguous. It is read as percent-scaled,
-// so an account at 1% is not reported as exhausted; only a value strictly
-// between 0 and 1 proves fractions.
+// The scale scenarios of the usage-source spec, centred on payloads holding
+// only 0 and 1, which detectPercentScale reads as percentages.
 func TestParseResponseAmbiguousScale(t *testing.T) {
 	cases := []struct {
 		name string
@@ -139,6 +138,16 @@ func TestParseResponseAmbiguousScale(t *testing.T) {
 			name: "every window at 1",
 			body: `{"five_hour": {"utilization": 1.0}, "seven_day": {"utilization": 1.0}}`,
 			want: map[string]float64{cache.WindowSession: 0.01, cache.WindowWeekly: 0.01},
+		},
+		{
+			name: "only scoped entries, every one at 1",
+			body: `{
+				"limits": [
+					{"kind": "session", "percent": 1, "scope": {"model": {"display_name": "Fable"}}},
+					{"kind": "weekly_scoped", "percent": 1, "scope": {"model": {"display_name": "Fable"}}}
+				]
+			}`,
+			want: map[string]float64{"fable:session": 0.01, "fable:weekly": 0.01},
 		},
 		{
 			name: "a true fraction next to 1",
